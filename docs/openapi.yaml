@@ -1,0 +1,798 @@
+openapi: 3.0.3
+info:
+  title: Marketplace API
+  version: 1.0.0
+  description: REST API for marketplace accounts, listings, social features, and access control.
+servers:
+  - url: http://localhost:8081/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /auth/register:
+    post:
+      security: []
+      summary: Register and sign in a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponseAuth' }
+  /auth/login:
+    post:
+      security: []
+      summary: Log in with email or username
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: JWT issued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponseAuth' }
+  /users/me:
+    get:
+      summary: Current account
+      responses:
+        '200': { description: Account response }
+    patch:
+      summary: Update current profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProfileRequest' }
+      responses:
+        '200': { description: Updated account }
+  /users/me/permissions:
+    get:
+      summary: Current user's effective permissions
+      responses:
+        '200': { description: Permission names }
+  /users/{id}:
+    get:
+      summary: Public user profile
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: User profile }
+  /users/{id}/reviews:
+    get:
+      summary: Seller reviews
+      parameters: [{ $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged reviews }
+  /products:
+    get:
+      security: []
+      summary: Browse and filter products
+      parameters:
+        - { name: keyword, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: location, in: query, schema: { type: string } }
+        - { name: condition, in: query, schema: { $ref: '#/components/schemas/ConditionType' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ProductStatus' } }
+        - { name: minPrice, in: query, schema: { type: number, format: double } }
+        - { name: maxPrice, in: query, schema: { type: number, format: double } }
+        - { name: sellerId, in: query, schema: { type: integer, format: int64 } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200': { description: Paged products }
+    post:
+      summary: Create a product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProductRequest' }
+      responses:
+        '201': { description: Product created }
+  /products/{id}:
+    get:
+      security: []
+      summary: Product details
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Product }
+    patch:
+      summary: Update own product
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProductRequest' }
+      responses:
+        '200': { description: Updated product }
+    delete:
+      summary: Soft-delete own product
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Product deleted }
+  /products/{id}/status:
+    patch:
+      summary: Change own product status
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateStatusRequest' }
+      responses:
+        '200': { description: Product status updated }
+  /products/{id}/images:
+    get:
+      security: []
+      summary: List product images
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Images }
+    post:
+      summary: Upload product image
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201': { description: Image uploaded }
+  /uploads/{filename}:
+    get:
+      security: []
+      summary: Retrieve an uploaded image
+      parameters:
+        - { name: filename, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Image bytes }
+  /products/{id}/images/{imageId}/primary:
+    patch:
+      summary: Select primary product image
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { name: imageId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200': { description: Primary image updated }
+  /products/{id}/images/{imageId}:
+    delete:
+      summary: Delete product image
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { name: imageId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200': { description: Image deleted }
+  /products/{id}/reviews:
+    get:
+      security: []
+      summary: List product reviews
+      parameters: [{ $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged reviews }
+    post:
+      summary: Review a product once
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddReviewRequest' }
+      responses:
+        '201': { description: Review created }
+  /reviews/{id}:
+    delete:
+      summary: Delete own review
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Review deleted }
+  /wishlist:
+    get:
+      summary: List current user's wishlist
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged products }
+  /wishlist/{productId}:
+    put:
+      summary: Add a product to wishlist
+      parameters: [{ name: productId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200': { description: Wishlist entry }
+    delete:
+      summary: Remove a product from wishlist
+      parameters: [{ name: productId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200': { description: Wishlist entry removed }
+  /posts:
+    get:
+      security: []
+      summary: List posts
+      parameters:
+        - { name: userId, in: query, schema: { type: integer, format: int64 } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200': { description: Paged posts }
+    post:
+      summary: Create post from own product listings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePostRequest' }
+      responses:
+        '201': { description: Post created }
+  /posts/{id}:
+    get:
+      security: []
+      summary: Post details
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Post with linked products and reaction count }
+    put:
+      summary: Update own post
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePostRequest' }
+      responses:
+        '200': { description: Updated post }
+    delete:
+      summary: Soft-delete own post
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Post deleted }
+  /posts/{id}/reaction:
+    put:
+      summary: Add or replace own reaction
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReactionRequest' }
+      responses:
+        '200': { description: Reaction }
+    delete:
+      summary: Remove own reaction
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Reaction removed }
+  /posts/{id}/comments:
+    get:
+      security: []
+      summary: List comments
+      parameters: [{ $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged comments }
+    post:
+      summary: Comment on a post
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommentRequest' }
+      responses:
+        '201': { description: Comment created }
+  /comments/{id}:
+    patch:
+      summary: Update own comment
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommentRequest' }
+      responses:
+        '200': { description: Updated comment }
+    delete:
+      summary: Soft-delete own comment
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Comment deleted }
+  /friends:
+    get:
+      summary: List accepted friendships
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged friendships }
+  /friends/requests:
+    get:
+      summary: List incoming pending requests
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged friendships }
+  /friends/requests/{userId}:
+    post:
+      summary: Send a friend request
+      parameters: [{ name: userId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '201': { description: Friend request }
+  /friends/requests/{id}/accept:
+    patch:
+      summary: Accept incoming request
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Accepted friendship }
+  /friends/requests/{id}/decline:
+    patch:
+      summary: Decline incoming request
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Declined request }
+  /friends/{id}:
+    delete:
+      summary: Remove friendship or request
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Friendship removed }
+  /messages:
+    get:
+      summary: List latest message for each conversation
+      responses:
+        '200': { description: Message array }
+  /messages/{userId}:
+    get:
+      summary: Get conversation with user
+      parameters: [{ name: userId, in: path, required: true, schema: { type: integer, format: int64 } }, { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged messages }
+    post:
+      summary: Send message to user
+      parameters: [{ name: userId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MessageRequest' }
+      responses:
+        '201': { description: Message sent }
+  /messages/{userId}/read:
+    patch:
+      summary: Mark incoming messages in conversation as read
+      parameters: [{ name: userId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200': { description: Conversation read }
+  /notifications:
+    get:
+      summary: List current user's notifications
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged notifications }
+  /notifications/{id}/read:
+    patch:
+      summary: Mark own notification read
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Updated notification }
+  /notifications/read-all:
+    patch:
+      summary: Mark all own notifications read
+      responses:
+        '200': { description: Notifications marked read }
+  /admin/users:
+    get:
+      summary: List accounts (user:manage)
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged accounts }
+  /admin/users/{id}:
+    get:
+      summary: Read account (user:manage)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Account }
+  /admin/users/{id}/active:
+    patch:
+      summary: Activate or deactivate an account (user:manage)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActiveRequest' }
+      responses:
+        '200': { description: Updated account }
+  /admin/roles:
+    get:
+      summary: List roles
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged roles }
+    post:
+      summary: Create role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleRequest' }
+      responses:
+        '201': { description: Role created }
+  /admin/roles/{id}:
+    get:
+      summary: Read role
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Role }
+    put:
+      summary: Update role
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleRequest' }
+      responses:
+        '200': { description: Updated role }
+    delete:
+      summary: Delete non-built-in, unassigned role
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Role deleted }
+  /admin/roles/{id}/permissions:
+    get:
+      summary: List role permissions
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Permission array }
+    put:
+      summary: Replace role permission assignments
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IdSetRequest' }
+      responses:
+        '200': { description: Updated role }
+  /admin/roles/{id}/permissions/{permissionId}:
+    put:
+      summary: Add a permission to a role
+      parameters: [{ $ref: '#/components/parameters/Id' }, { name: permissionId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200': { description: Updated role }
+    delete:
+      summary: Remove a permission from a role
+      parameters: [{ $ref: '#/components/parameters/Id' }, { name: permissionId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200': { description: Updated role }
+  /admin/permissions:
+    get:
+      summary: List permissions
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged permissions }
+    post:
+      summary: Create permission
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PermissionRequest' }
+      responses:
+        '201': { description: Permission created }
+  /admin/permissions/{id}:
+    get:
+      summary: Read permission
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Permission }
+    put:
+      summary: Update permission
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PermissionRequest' }
+      responses:
+        '200': { description: Updated permission }
+    delete:
+      summary: Delete unassigned permission
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Permission deleted }
+  /admin/users/{id}/roles:
+    get:
+      summary: List user's roles
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Role array }
+    put:
+      summary: Replace user's roles
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IdSetRequest' }
+      responses:
+        '200': { description: Updated account }
+  /admin/users/{id}/permissions:
+    get:
+      summary: List user's effective permissions
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Permission names }
+  /admin/users/{id}/roles/{roleId}:
+    put:
+      summary: Add role to user
+      parameters: [{ $ref: '#/components/parameters/Id' }, { name: roleId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200': { description: Updated account }
+    delete:
+      summary: Remove role from user
+      parameters: [{ $ref: '#/components/parameters/Id' }, { name: roleId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200': { description: Updated account }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    Size:
+      name: size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+  schemas:
+    ApiResponseAuth:
+      type: object
+      properties:
+        status: { type: integer }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/AuthResponse' }
+        timestamp: { type: string, format: date-time }
+    AuthResponse:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+    RegisterRequest:
+      type: object
+      required: [username, email, password]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 50 }
+        email: { type: string, format: email, maxLength: 100 }
+        password: { type: string, minLength: 8, maxLength: 72 }
+        fullName: { type: string, maxLength: 100 }
+    LoginRequest:
+      type: object
+      required: [password]
+      properties:
+        email: { type: string, format: email }
+        username: { type: string }
+        password: { type: string }
+      description: Supply either email or username with password.
+    UpdateProfileRequest:
+      type: object
+      properties:
+        fullName: { type: string, maxLength: 100 }
+        location: { type: string, maxLength: 100 }
+        phone: { type: string, maxLength: 20 }
+        bio: { type: string }
+    CreateProductRequest:
+      type: object
+      required: [title, price]
+      properties:
+        title: { type: string, maxLength: 200 }
+        description: { type: string }
+        price: { type: number, minimum: 0, exclusiveMinimum: true, multipleOf: 0.01 }
+        category: { type: string, maxLength: 100 }
+        location: { type: string, maxLength: 100 }
+        condition: { $ref: '#/components/schemas/ConditionType' }
+    UpdateProductRequest:
+      type: object
+      description: All fields are optional; send only fields to update.
+      properties:
+        title: { type: string, maxLength: 200 }
+        description: { type: string, nullable: true }
+        price: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        category: { type: string, maxLength: 100, nullable: true }
+        location: { type: string, maxLength: 100, nullable: true }
+        condition: { $ref: '#/components/schemas/ConditionType' }
+    UpdateStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/ProductStatus' }
+    AddReviewRequest:
+      type: object
+      required: [rating]
+      properties:
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        comment: { type: string }
+    CreatePostRequest:
+      type: object
+      required: [productIds]
+      properties:
+        content: { type: string }
+        productIds:
+          type: array
+          minItems: 1
+          items: { type: integer, format: int64 }
+    ReactionRequest:
+      type: object
+      required: [reactionType]
+      properties:
+        reactionType: { type: string, enum: [LIKE, LOVE, HAHA, WOW, SAD, ANGRY] }
+    CommentRequest:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, minLength: 1 }
+    MessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, minLength: 1 }
+        productId: { type: integer, format: int64, nullable: true }
+    ActiveRequest:
+      type: object
+      required: [active]
+      properties:
+        active: { type: boolean }
+    IdSetRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          uniqueItems: true
+          items: { type: integer, format: int64, minimum: 1 }
+    RoleRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, pattern: '^ROLE_[A-Z][A-Z0-9_]*$', maxLength: 50 }
+        description: { type: string, maxLength: 200 }
+    PermissionRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, pattern: '^[a-z][a-z0-9_-]*:[a-z][a-z0-9_-]*$', maxLength: 100 }
+        description: { type: string, maxLength: 200 }
+    ConditionType:
+      type: string
+      enum: [NEW, LIKE_NEW, GOOD, FAIR, POOR]
+    ProductStatus:
+      type: string
+      enum: [AVAILABLE, SOLD, RESERVED, DELETED]
+    UserResponse:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        username: { type: string }
+        fullName: { type: string, nullable: true }
+        avatarUrl: { type: string, nullable: true }
+        bio: { type: string, nullable: true }
+        location: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    AccountResponse:
+      type: object
+      properties:
+        profile: { $ref: '#/components/schemas/UserResponse' }
+        email: { type: string, format: email }
+        phone: { type: string, nullable: true }
+        active: { type: boolean }
+        roles: { type: array, items: { type: string } }
+    Product:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        sellerId: { type: integer, format: int64 }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        price: { type: number, multipleOf: 0.01 }
+        category: { type: string, nullable: true }
+        condition: { $ref: '#/components/schemas/ConditionType' }
+        location: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/ProductStatus' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ProductImage:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        productId: { type: integer, format: int64 }
+        imageUrl: { type: string }
+        isPrimary: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    Review:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        productId: { type: integer, format: int64 }
+        buyerId: { type: integer, format: int64 }
+        sellerId: { type: integer, format: int64 }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        comment: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    ListingPost:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        userId: { type: integer, format: int64 }
+        content: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PostResponse:
+      type: object
+      properties:
+        post: { $ref: '#/components/schemas/ListingPost' }
+        products: { type: array, items: { $ref: '#/components/schemas/Product' } }
+        reactionCount: { type: integer, format: int64 }
+    Comment:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        postId: { type: integer, format: int64 }
+        userId: { type: integer, format: int64 }
+        content: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Friendship:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        requesterId: { type: integer, format: int64 }
+        addresseeId: { type: integer, format: int64 }
+        status: { type: string, enum: [PENDING, ACCEPTED, DECLINED] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Message:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        senderId: { type: integer, format: int64 }
+        receiverId: { type: integer, format: int64 }
+        productId: { type: integer, format: int64, nullable: true }
+        content: { type: string }
+        isRead: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    Notification:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        userId: { type: integer, format: int64 }
+        type: { type: string, enum: [COMMENT, MESSAGE, FRIEND_REQUEST, REVIEW, LIKE] }
+        message: { type: string }
+        refId: { type: integer, format: int64, nullable: true }
+        isRead: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    Permission:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        description: { type: string, nullable: true }
+    Role:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        permissions: { type: array, items: { $ref: '#/components/schemas/Permission' } }
