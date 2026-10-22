@@ -17,7 +17,7 @@ RUN groupadd --system app && useradd --system --gid app --home-dir /app app \
 COPY --from=build --chown=app:app /workspace/target/marketplace-0.0.1-SNAPSHOT.jar /app/app.jar
 
 USER app
-EXPOSE 7001
-ENV PORT=7001
+EXPOSE 10000
+ENV PORT=10000
 
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
