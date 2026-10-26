@@ -1,0 +1,5 @@
+
+DB_URL=jdbc:postgresql://dpg-dbcotp0m7kps73cf1qj0-a.virginia-postgres.render.com:5432/marketplace_zhdq?sslmode=require
+DB_USERNAME=admin
+DB_PASSWORD=A8DwsBHYJN1ZIZusCswldYf6oDqftc82
+JWT_SECRET=0e0f734ad73ba408432903db51aab51ffe21bf7d7d983260ad8c73c4d2d92a3d

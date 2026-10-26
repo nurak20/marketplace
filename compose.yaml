@@ -1,5 +1,7 @@
 services:
   db:
+    profiles:
+      - compose-db
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -18,14 +20,11 @@ services:
     build: .
     image: marketplace-api:local
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
       PORT: 7001
-      DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-marketplace}
-      DB_USERNAME: ${POSTGRES_USER:-postgres}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-admin}
+      DB_URL: ${DOCKER_DB_URL:-jdbc:postgresql://host.docker.internal:5432/marketplace}
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-admin}
       JWT_SECRET: ${JWT_SECRET:-404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
     ports:
       - "${HOST_PORT:-7001}:7001"

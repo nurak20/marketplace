@@ -8,7 +8,7 @@ From the project directory, run:
 ./build
 ```
 
-The script builds the latest source into a Docker image, starts the API and PostgreSQL, and serves the API at `http://localhost:7001/api/v1`. Docker and Docker Compose must be installed and running.
+The script builds the API image and serves it at `http://localhost:7001/api/v1`. By default, the API container connects to PostgreSQL running on your Mac at `localhost:5432/marketplace` through Docker’s `host.docker.internal` hostname. Start that database first and keep its credentials in `.env`. The Compose PostgreSQL service is optional and can be started with `DOCKER_DB_URL=jdbc:postgresql://db:5432/marketplace docker compose --profile compose-db up --build -d`. Docker and Docker Compose must be installed and running.
 
 If port 7001 is already in use on your computer, choose another host port while the app still listens on 7001 inside Docker:
 

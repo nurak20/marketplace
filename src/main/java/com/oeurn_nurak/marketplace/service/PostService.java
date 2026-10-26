@@ -22,6 +22,8 @@ public class PostService {
     private final ListingPostRepository posts;
     private final ListingPostItemRepository items;
     private final ProductRepository products;
+    private final ProductImageRepository productImages;
+    private final WishlistRepository wishlists;
     private final PostReactionRepository reactions;
     private final CommentRepository comments;
     private final ProductService productService;
@@ -38,11 +40,22 @@ public class PostService {
     }
 
     private PostResponse response(ListingPost post, Long viewerId) {
-        List<Long> ids = items.findByPostIdOrderByIdAsc(post.getId()).stream()
-                .map(ListingPostItem::getProductId).toList();
-        Map<Long, Product> productsById = products.findAllById(ids).stream()
-                .collect(java.util.stream.Collectors.toMap(Product::getId, product -> product));
-        List<Product> postProducts = ids.stream().map(productsById::get).filter(Objects::nonNull).toList();
+        List<Product> postProducts = productsForPosts(List.of(post))
+                .getOrDefault(post.getId(), List.of());
+        Map<Long, String> imageUrls = primaryImageUrls(postProducts);
+        Map<Long, UserResponse> sellers = sellerProfiles(postProducts);
+        Set<Long> savedProductIds = savedProductIds(postProducts, viewerId);
+        return response(post, viewerId, postProducts, imageUrls, sellers, savedProductIds);
+    }
+
+    private PostResponse response(
+            ListingPost post,
+            Long viewerId,
+            List<Product> postProducts,
+            Map<Long, String> imageUrls,
+            Map<Long, UserResponse> sellers,
+            Set<Long> savedProductIds
+    ) {
         boolean hasReacted = viewerId != null
                 && reactions.existsByPostIdAndProductIdIsNullAndUserId(post.getId(), viewerId);
         List<ProductEngagementResponse> productEngagements = postProducts.stream()
@@ -52,8 +65,79 @@ public class PostService {
                         viewerId != null && reactions.existsByPostIdAndProductIdAndUserId(
                                 post.getId(), product.getId(), viewerId)))
                 .toList();
-        return new PostResponse(post, postProducts, reactions.countByPostId(post.getId()),
+        List<ProductResponse> productResponses = postProducts.stream()
+                .map(product -> ProductResponse.from(
+                        product,
+                        imageUrls.get(product.getId()),
+                        sellers.get(product.getSellerId()),
+                        savedProductIds.contains(product.getId())))
+                .toList();
+        return new PostResponse(post, productResponses, reactions.countByPostId(post.getId()),
                 comments.countByPostId(post.getId()), hasReacted, post.getCreatedAt(), productEngagements);
+    }
+
+    private Map<Long, List<Product>> productsForPosts(List<ListingPost> pagePosts) {
+        if (pagePosts.isEmpty()) return Map.of();
+
+        List<Long> postIds = pagePosts.stream().map(ListingPost::getId).toList();
+        Map<Long, List<Long>> productIdsByPost = new HashMap<>();
+        pagePosts.forEach(post -> productIdsByPost.put(post.getId(), new ArrayList<>()));
+        items.findByPostIdInOrderByIdAsc(postIds).forEach(item ->
+                productIdsByPost.get(item.getPostId()).add(item.getProductId()));
+
+        Set<Long> productIds = new LinkedHashSet<>();
+        productIdsByPost.values().forEach(productIds::addAll);
+        Map<Long, Product> productsById = new HashMap<>();
+        products.findAllById(productIds).forEach(product -> productsById.put(product.getId(), product));
+
+        Map<Long, List<Product>> result = new LinkedHashMap<>();
+        productIdsByPost.forEach((postId, ids) -> result.put(postId, ids.stream()
+                .map(productsById::get)
+                .filter(Objects::nonNull)
+                .toList()));
+        return result;
+    }
+
+    private Map<Long, String> primaryImageUrls(List<Product> pageProducts) {
+        Set<Long> productIds = pageProducts.stream()
+                .map(Product::getId)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        if (productIds.isEmpty()) return Map.of();
+
+        Map<Long, List<ProductImage>> imagesByProduct = new HashMap<>();
+        productImages.findByProductIdIn(productIds).forEach(image ->
+                imagesByProduct.computeIfAbsent(image.getProductId(), ignored -> new ArrayList<>()).add(image));
+
+        Map<Long, String> result = new HashMap<>();
+        imagesByProduct.forEach((productId, images) -> {
+            ProductImage primary = images.stream()
+                    .filter(image -> Boolean.TRUE.equals(image.getIsPrimary()))
+                    .findFirst()
+                    .orElse(images.get(0));
+            result.put(productId, primary.getImageUrl());
+        });
+        return result;
+    }
+
+    private Map<Long, UserResponse> sellerProfiles(List<Product> pageProducts) {
+        Set<Long> sellerIds = pageProducts.stream()
+                .map(Product::getSellerId)
+                .collect(java.util.stream.Collectors.toSet());
+        if (sellerIds.isEmpty()) return Map.of();
+
+        Map<Long, UserResponse> result = new HashMap<>();
+        users.findAllById(sellerIds).forEach(user -> result.put(user.getId(), UserResponse.from(user)));
+        return result;
+    }
+
+    private Set<Long> savedProductIds(List<Product> pageProducts, Long viewerId) {
+        if (viewerId == null || pageProducts.isEmpty()) return Set.of();
+        Set<Long> productIds = pageProducts.stream()
+                .map(Product::getId)
+                .collect(java.util.stream.Collectors.toSet());
+        return wishlists.findByUserIdAndProductIdIn(viewerId, productIds).stream()
+                .map(Wishlist::getProductId)
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     private Long viewerId() {
@@ -69,7 +153,20 @@ public class PostService {
     public PageDto<PostResponse> list(Long userId, Pageable page) {
         Long viewerId = viewerId();
         Page<ListingPost> result = userId == null ? posts.findAll(page) : posts.findByUserIdOrderByCreatedAtDesc(userId, page);
-        return PageDto.from(result.map(post -> response(post, viewerId)));
+        Map<Long, List<Product>> productsByPost = productsForPosts(result.getContent());
+        List<Product> pageProducts = productsByPost.values().stream()
+                .flatMap(Collection::stream)
+                .toList();
+        Map<Long, String> imageUrls = primaryImageUrls(pageProducts);
+        Map<Long, UserResponse> sellers = sellerProfiles(pageProducts);
+        Set<Long> savedProductIds = savedProductIds(pageProducts, viewerId);
+        return PageDto.from(result.map(post -> response(
+                post,
+                viewerId,
+                productsByPost.getOrDefault(post.getId(), List.of()),
+                imageUrls,
+                sellers,
+                savedProductIds)));
     }
 
     private List<Long> validateProducts(CreatePostRequest request) {

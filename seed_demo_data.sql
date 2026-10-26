@@ -107,9 +107,11 @@ FROM seed_demo_users du
 JOIN roles r ON r.name = CASE WHEN du.n = 1 THEN 'ROLE_ADMIN' ELSE 'ROLE_USER' END
 ON CONFLICT DO NOTHING;
 
--- Thirteen marketplace products.
+-- Two marketplace products per demo seller. Each seller's products appear
+-- together on one post so the product-scoped post logic has representative data.
 WITH seed AS (
     SELECT n,
+           CASE WHEN n > 13 THEN n - 13 ELSE n END AS seller_n,
            format('Marketplace demo item %s', lpad(n::text, 2, '0')) AS title,
            CASE (n - 1) % 8
                WHEN 0 THEN 'Electronics' WHEN 1 THEN 'Books'
@@ -122,7 +124,7 @@ WITH seed AS (
                WHEN 0 THEN 'LIKE_NEW' WHEN 1 THEN 'GOOD'
                WHEN 2 THEN 'FAIR' WHEN 3 THEN 'NEW' ELSE 'LIKE_NEW'
            END::condition_type AS item_condition
-    FROM generate_series(1, 13) AS g(n)
+    FROM generate_series(1, 26) AS g(n)
 )
 INSERT INTO products (seller_id, title, description, price, category, condition, location, status)
 SELECT du.user_id,
@@ -134,7 +136,7 @@ SELECT du.user_id,
        CASE WHEN s.n % 3 = 0 THEN 'Siem Reap, Cambodia' ELSE 'Phnom Penh, Cambodia' END,
        'AVAILABLE'::product_status
 FROM seed s
-JOIN seed_demo_users du ON du.n = s.n
+JOIN seed_demo_users du ON du.n = s.seller_n
 WHERE NOT EXISTS (
     SELECT 1 FROM products p WHERE p.title = s.title AND p.seller_id = du.user_id
 );
@@ -142,7 +144,8 @@ WHERE NOT EXISTS (
 CREATE TEMP TABLE seed_demo_products ON COMMIT DROP AS
 SELECT right(p.title, 2)::integer AS n, p.id AS product_id, p.title, p.seller_id
 FROM products p
-WHERE p.title LIKE 'Marketplace demo item __';
+WHERE p.title LIKE 'Marketplace demo item __'
+  AND right(p.title, 2)::integer BETWEEN 1 AND 26;
 
 -- One image per demo product. These are neutral placeholders for local testing.
 INSERT INTO product_images (product_id, image_url, is_primary)
@@ -156,38 +159,44 @@ WHERE NOT EXISTS (
       AND i.image_url = 'https://placehold.co/800x600/png?text=Marketplace+item+' || lpad(p.n::text, 2, '0')
 );
 
--- Thirteen listing posts, each linked to one product.
+-- Thirteen listing posts, one per seller. The second product is linked below.
 INSERT INTO listing_posts (user_id, content)
 SELECT du.user_id,
        'Demo listing post ' || lpad(p.n::text, 2, '0') || ': Check out my ' || p.title || ' in Phnom Penh.'
 FROM seed_demo_products p
-JOIN seed_demo_users du ON du.n = p.n
-WHERE NOT EXISTS (
+JOIN seed_demo_users du ON du.user_id = p.seller_id
+WHERE p.n BETWEEN 1 AND 13
+  AND NOT EXISTS (
     SELECT 1 FROM listing_posts lp
     WHERE lp.user_id = du.user_id
       AND lp.content = 'Demo listing post ' || lpad(p.n::text, 2, '0') || ': Check out my ' || p.title || ' in Phnom Penh.'
 );
 
 CREATE TEMP TABLE seed_demo_posts ON COMMIT DROP AS
-SELECT p.n, lp.id AS post_id, p.product_id
+SELECT p.n, lp.id AS post_id, p.seller_id
 FROM seed_demo_products p
-JOIN seed_demo_users du ON du.n = p.n
 JOIN listing_posts lp
-  ON lp.user_id = du.user_id
- AND lp.content = 'Demo listing post ' || lpad(p.n::text, 2, '0') || ': Check out my ' || p.title || ' in Phnom Penh.';
+  ON lp.user_id = p.seller_id
+ AND lp.content = 'Demo listing post ' || lpad(p.n::text, 2, '0') || ': Check out my ' || p.title || ' in Phnom Penh.'
+WHERE p.n BETWEEN 1 AND 13;
+
+CREATE TEMP TABLE seed_demo_post_products ON COMMIT DROP AS
+SELECT sp.n AS post_n, p.n, sp.post_id, p.product_id, p.seller_id
+FROM seed_demo_posts sp
+JOIN seed_demo_products p ON p.seller_id = sp.seller_id;
 
 INSERT INTO listing_post_items (post_id, product_id)
-SELECT post_id, product_id FROM seed_demo_posts
+SELECT post_id, product_id FROM seed_demo_post_products
 ON CONFLICT (post_id, product_id) DO NOTHING;
 
--- Thirteen product-scoped reactions and comments.
+-- Product-scoped reactions and comments, one set for every post/product pair.
 INSERT INTO post_reactions (post_id, product_id, user_id, reaction_type)
 SELECT p.post_id, p.product_id, du.user_id,
        CASE (p.n - 1) % 6
            WHEN 0 THEN 'LIKE' WHEN 1 THEN 'LOVE' WHEN 2 THEN 'HAHA'
            WHEN 3 THEN 'WOW' WHEN 4 THEN 'SAD' ELSE 'ANGRY'
        END::reaction_type
-FROM seed_demo_posts p
+FROM seed_demo_post_products p
 JOIN seed_demo_users du ON du.n = (p.n % 13) + 1
 ON CONFLICT DO NOTHING;
 
@@ -199,7 +208,7 @@ SELECT p.post_id, p.product_id, du.user_id,
            WHEN 2 THEN 'Would you consider meeting in Phnom Penh?'
            ELSE 'Thanks for sharing this listing.'
        END || ' Demo comment ' || lpad(p.n::text, 2, '0') || '.'
-FROM seed_demo_posts p
+FROM seed_demo_post_products p
 JOIN seed_demo_users du ON du.n = ((p.n + 1) % 13) + 1
 WHERE NOT EXISTS (
     SELECT 1 FROM comments c
@@ -212,10 +221,10 @@ WHERE NOT EXISTS (
       END || ' Demo comment ' || lpad(p.n::text, 2, '0') || '.'
 );
 
--- Thirteen wishlist entries.
+-- One wishlist entry per demo product.
 INSERT INTO wishlists (user_id, product_id)
 SELECT du.user_id, p.product_id
-FROM seed_demo_products p
+FROM seed_demo_post_products p
 JOIN seed_demo_users du ON du.n = ((p.n + 2) % 13) + 1
 ON CONFLICT (user_id, product_id) DO NOTHING;
 
@@ -233,7 +242,7 @@ SELECT a.user_id, b.user_id, p.product_id,
        (a.n % 2 = 0)
 FROM seed_demo_users a
 JOIN seed_demo_users b ON b.n = (a.n % 13) + 1
-JOIN seed_demo_products p ON p.n = a.n
+JOIN seed_demo_products p ON p.seller_id = a.user_id AND p.n BETWEEN 1 AND 13
 WHERE NOT EXISTS (
     SELECT 1 FROM messages m
     WHERE m.sender_id = a.user_id AND m.receiver_id = b.user_id
@@ -268,13 +277,15 @@ SELECT p.product_id, buyer.user_id, p.seller_id,
        END
 FROM seed_demo_products p
 JOIN seed_demo_users buyer ON buyer.n = (p.n % 13) + 1
-WHERE NOT EXISTS (
+WHERE p.n BETWEEN 1 AND 13
+  AND NOT EXISTS (
     SELECT 1 FROM reviews r WHERE r.product_id = p.product_id AND r.buyer_id = buyer.user_id
 );
 
 COMMIT;
 
--- Expected demo counts: 13 users, products, product_images, listing_posts,
--- listing_post_items, post_reactions, comments, wishlists, friendships,
--- messages, notifications, reviews, and user_roles. The roles, permissions,
+-- Expected demo counts: 13 users, listing_posts, friendships, messages,
+-- notifications, reviews, and user_roles; 26 products, product_images,
+-- listing_post_items, product-scoped post_reactions, comments, and wishlists.
+-- The roles, permissions,
 -- and role_permissions tables keep the app's migration-provided access data.
