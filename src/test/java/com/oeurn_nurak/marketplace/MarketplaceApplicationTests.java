@@ -84,6 +84,17 @@ class MarketplaceApplicationTests {
         return java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "marketplace-test-uploads", name);
     }
 
+    JsonNode notifications(Account account) throws Exception {
+        return call(auth(get(API + "/notifications?size=50"), account), 200).path("items");
+    }
+
+    JsonNode notification(Account account, String type) throws Exception {
+        for (JsonNode item : notifications(account)) {
+            if (type.equals(item.path("type").asText())) return item;
+        }
+        throw new AssertionError("No " + type + " notification for user " + account.id());
+    }
+
     @Test void authenticationValidationAndPrivateProfiles() throws Exception {
         Account account = account("alice");
         JsonNode login = call(body(post(API + "/auth/login"), Map.of("username", "alice", "password", "12345678")), 200);
@@ -215,6 +226,33 @@ class MarketplaceApplicationTests {
                 .isEqualTo("This listing is no longer available.");
         assertThat(removedPost.path("products")).isEmpty();
         call(get(API + "/posts/" + postId + "/comments"), 404);
+    }
+
+    @Test void commentAndMessageNotificationsCarryContent() throws Exception {
+        Account owner = account("owner");
+        Account replyer = account("replyer");
+        long productId = product(owner);
+        long postId = call(body(auth(post(API + "/posts"), owner),
+                Map.of("content", "For sale", "productIds", List.of(productId))), 201)
+                .path("post").path("id").asLong();
+
+        JsonNode root = call(body(auth(post(API + "/posts/" + postId + "/comments"), replyer),
+                Map.of("content", "Is this still available?")), 201);
+        JsonNode comment = notification(owner, "COMMENT");
+        assertThat(comment.path("message").asText()).isEqualTo("Is this still available?");
+        assertThat(comment.path("actor").path("id").asLong()).isEqualTo(replyer.id());
+        assertThat(comment.path("createdAt").asText()).endsWith("Z");
+
+        call(body(auth(post(API + "/posts/" + postId + "/comments"), owner),
+                Map.of("content", "Yes, it is", "parentId", root.path("id").asLong())), 201);
+        JsonNode reply = notification(replyer, "COMMENT");
+        assertThat(reply.path("message").asText()).isEqualTo("Yes, it is");
+        assertThat(reply.path("actor").path("id").asLong()).isEqualTo(owner.id());
+        assertThat(notifications(owner).toString()).doesNotContain("Yes, it is");
+
+        call(body(auth(post(API + "/messages/" + owner.id()), replyer), Map.of("content", "hello bro")), 201);
+        assertThat(notification(owner, "MESSAGE").path("message").asText()).isEqualTo("hello bro");
+        assertThat(notifications(replyer).toString()).doesNotContain("\"type\":\"MESSAGE\"");
     }
 
     @Test void wishlistReviewsAndNotifications() throws Exception {

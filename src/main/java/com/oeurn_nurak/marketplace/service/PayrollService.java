@@ -21,6 +21,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Month;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.time.format.TextStyle;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -34,6 +35,8 @@ public class PayrollService {
             List.of(EmploymentStatus.ACTIVE, EmploymentStatus.ON_LEAVE);
     private static final List<PayrollRunStatus> EMPLOYEE_VISIBLE_STATUSES =
             List.of(PayrollRunStatus.APPROVED, PayrollRunStatus.PAID);
+    /** Payroll periods follow the business calendar, not the UTC server clock. */
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Phnom_Penh");
 
     private final EmployeeProfileRepository employees;
     private final PayrollRunRepository runs;
@@ -116,7 +119,7 @@ public class PayrollService {
     }
 
     public PayrollRunResponse createRun(CreatePayrollRunRequest request) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(BUSINESS_ZONE);
         if (request.year() > today.getYear()
                 || (request.year().equals(today.getYear()) && request.month() > today.getMonthValue()))
             throw new BadRequestException("Payroll runs cannot be created for a future period");

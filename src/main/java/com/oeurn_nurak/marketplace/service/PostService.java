@@ -406,8 +406,7 @@ public class PostService {
         Comment comment = comments.save(Comment.builder().postId(id).productId(productId).userId(userId)
                 .parentId(parent == null ? null : parent.getId()).content(request.getContent()).build());
         Long recipientId = parent == null ? post.getUserId() : parent.getUserId();
-        String notificationMessage = parent == null ? "New post comment" : "New comment reply";
-        notifications.send(recipientId, userId, NotifType.COMMENT, notificationMessage, id, id, productId, 1);
+        notifications.send(recipientId, userId, NotifType.COMMENT, request.getContent(), id, id, productId, 1);
         return comment;
     }
 

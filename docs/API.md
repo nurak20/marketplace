@@ -15,9 +15,11 @@ Successful responses use this envelope:
   "status": 200,
   "message": "Success",
   "data": {},
-  "timestamp": "2026-10-20T10:30:00"
+  "timestamp": "2026-10-20T10:30:00Z"
 }
 ```
+
+All `LocalDateTime` values are UTC wall-clock time serialized with a trailing `Z` (for example `2026-10-20T03:30:00Z`). Clients should parse them as UTC and convert to the viewer's time zone; payroll period dates are the exception and follow the `Asia/Phnom_Penh` business calendar.
 
 Create endpoints return HTTP 201. Errors use the same envelope; validation errors put a field-to-message object in `data`. Common HTTP errors are 400 for invalid input, 401 for missing/invalid authentication, 403 for insufficient permission or ownership, 404 for a missing resource, and 409 for a duplicate or conflicting state.
 
@@ -145,6 +147,12 @@ Reaction values are `LIKE`, `LOVE`, `HAHA`, `WOW`, `SAD`, `ANGRY`. A post's `Pos
 
 Each notification returns `id`, `type`, `message`, `refId`, `isRead`, `createdAt`, `itemCount`, `postId`, `productId`, and the `actor` public profile (username, name, avatar). `POST` notifications describe a new listing and are only delivered to active staff (`ROLE_ADMIN`, `ROLE_SUPER_ADMIN`, `ROLE_HR`, `ROLE_EMPLOYEE`, `ROLE_MANAGER`); regular accounts never receive or list them. All other types are addressed to the recipient and remain visible to that account.
 
+`message` carries the human-readable text of what happened, trimmed to 280 characters:
+
+- `COMMENT` uses the comment body. A top-level comment notifies the post author; a reply notifies the author of the comment being replied to, so an admin sees the reply when another user answers them. Authors never receive a notification for their own action.
+- `MESSAGE` uses the chat message text, so the notification list shows the same content as the conversation.
+- `LIKE`, `REVIEW`, and `PAYROLL` use their short summary text; `POST` uses the listing content.
+
 ### Realtime notifications
 
 Connect to `ws://<host>/ws/notifications?token=<jwt>` (use `wss://` behind TLS). The token is validated during the handshake; unauthenticated connections are rejected with 401. Events are JSON text frames:
@@ -155,6 +163,9 @@ Connect to `ws://<host>/ws/notifications?token=<jwt>` (use `wss://` behind TLS).
 | `notification.created`  | `{ "event":"notification.created", "notification":{...}, "unreadCount":3 }` |
 | `notification.read`     | `{ "event":"notification.read", "id":12, "unreadCount":2 }`               |
 | `notification.read-all` | `{ "event":"notification.read-all", "unreadCount":0 }`                    |
+| `message.created`       | `{ "event":"message.created", "message":{...} }`                          |
+
+`message.created` is delivered to both the sender and the receiver for every chat message, so an open conversation updates without polling. The `message` object uses the same shape as `GET /messages/{userId}` items (`id`, `senderId`, `receiverId`, `productId`, `content`, `isRead`, `createdAt`) but without the embedded `sender`/`receiver` profiles.
 
 Clients may send the text `ping` to receive `{ "event":"pong" }`. Events are emitted after the database transaction commits, so a rolled-back action never produces a notification.
 

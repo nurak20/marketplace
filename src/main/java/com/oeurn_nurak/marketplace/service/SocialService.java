@@ -6,6 +6,7 @@ import com.oeurn_nurak.marketplace.entity.*;
 import com.oeurn_nurak.marketplace.entity.enums.*;
 import com.oeurn_nurak.marketplace.exception.*;
 import com.oeurn_nurak.marketplace.repository.*;
+import com.oeurn_nurak.marketplace.realtime.NotificationRealtimePublisher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ public class SocialService {
     private final AccountService accounts;
     private final ProductService products;
     private final NotificationService notifications;
+    private final NotificationRealtimePublisher realtime;
 
     @Transactional(readOnly = true)
     public PageDto<Friendship> friends(Pageable page) {
@@ -71,10 +73,11 @@ public class SocialService {
         User recipient = accounts.requireUser(receiver);
         if (!Boolean.TRUE.equals(recipient.getIsActive())) throw new BadRequestException("Recipient is inactive");
         if (request.getProductId() != null) products.require(request.getProductId());
-        Message message = messages.save(Message.builder().senderId(actor).receiverId(receiver)
+        Message message = messages.saveAndFlush(Message.builder().senderId(actor).receiverId(receiver)
                 .productId(request.getProductId()).content(request.getContent()).isRead(false).build());
-        notifications.send(receiver, actor, NotifType.MESSAGE, "New message", message.getId(),
+        notifications.send(receiver, actor, NotifType.MESSAGE, message.getContent(), message.getId(),
                 null, request.getProductId(), 0);
+        realtime.messageCreated(message);
         return message;
     }
 

@@ -1,6 +1,7 @@
 package com.oeurn_nurak.marketplace.realtime;
 
 import com.oeurn_nurak.marketplace.dto.response.NotificationResponse;
+import com.oeurn_nurak.marketplace.entity.Message;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -37,6 +38,27 @@ public class NotificationRealtimePublisher {
         payload.put("event", "notification.read-all");
         payload.put("unreadCount", 0);
         sendAfterCommit(userId, payload);
+    }
+
+    /** Delivers a chat message to both sides so open conversations update instantly. */
+    public void messageCreated(Message message) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("event", "message.created");
+        payload.put("message", messagePayload(message));
+        sendAfterCommit(message.getReceiverId(), payload);
+        sendAfterCommit(message.getSenderId(), payload);
+    }
+
+    private Map<String, Object> messagePayload(Message message) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("id", message.getId());
+        data.put("senderId", message.getSenderId());
+        data.put("receiverId", message.getReceiverId());
+        data.put("productId", message.getProductId());
+        data.put("content", message.getContent());
+        data.put("isRead", Boolean.TRUE.equals(message.getIsRead()));
+        data.put("createdAt", message.getCreatedAt());
+        return data;
     }
 
     private void sendAfterCommit(Long userId, Map<String, Object> payload) {
