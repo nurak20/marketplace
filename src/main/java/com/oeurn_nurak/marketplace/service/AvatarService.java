@@ -5,7 +5,6 @@ import com.oeurn_nurak.marketplace.entity.User;
 import com.oeurn_nurak.marketplace.exception.BadRequestException;
 import com.oeurn_nurak.marketplace.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,13 +16,9 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.Set;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -36,41 +31,25 @@ public class AvatarService {
 
     private final CurrentUser current;
     private final UserRepository users;
-
-    @Value("${app.upload.dir}")
-    private String uploadDir;
+    private final StoredImageService storage;
 
     public AccountResponse upload(MultipartFile file) {
         if (file == null || file.isEmpty() || file.getSize() > MAX_FILE_BYTES) {
             throw new BadRequestException("Profile image must be between 1 byte and 10 MB");
         }
+        BufferedImage image;
+        try {
+            image = readImage(file.getBytes());
+        } catch (IOException error) {
+            throw new BadRequestException("Unable to read or store profile image");
+        }
 
-        Path uploadRoot = Paths.get(uploadDir).toAbsolutePath().normalize();
-        Path profileDir = uploadRoot.resolve("profile").normalize();
-        if (!profileDir.startsWith(uploadRoot)) throw new IllegalStateException("Invalid upload directory");
-
-        String filename = UUID.randomUUID() + ".png";
-        Path target = profileDir.resolve(filename);
         User user = current.get();
         String previousUrl = user.getAvatarUrl();
-
-        try {
-            BufferedImage image = readImage(file.getBytes());
-            Files.createDirectories(profileDir);
-            if (!ImageIO.write(image, "png", target.toFile())) {
-                throw new IOException("PNG encoder is unavailable");
-            }
-            user.setAvatarUrl(URL_PREFIX + filename);
-            AccountResponse response = AccountResponse.from(users.saveAndFlush(user));
-            removePreviousImage(previousUrl, profileDir, target);
-            return response;
-        } catch (IOException error) {
-            deleteQuietly(target);
-            throw new BadRequestException("Unable to read or store profile image");
-        } catch (RuntimeException error) {
-            deleteQuietly(target);
-            throw error;
-        }
+        user.setAvatarUrl(storage.savePng(image, URL_PREFIX));
+        AccountResponse response = AccountResponse.from(users.saveAndFlush(user));
+        if (previousUrl != null && previousUrl.startsWith(URL_PREFIX)) storage.deleteByUrl(previousUrl);
+        return response;
     }
 
     private BufferedImage readImage(byte[] data) throws IOException {
@@ -99,21 +78,6 @@ public class AvatarService {
             } finally {
                 reader.dispose();
             }
-        }
-    }
-
-    private void removePreviousImage(String previousUrl, Path profileDir, Path replacement) {
-        if (previousUrl == null || !previousUrl.startsWith(URL_PREFIX)) return;
-        Path previous = profileDir.resolve(previousUrl.substring(URL_PREFIX.length())).normalize();
-        if (!profileDir.equals(previous.getParent()) || previous.equals(replacement)) return;
-        deleteQuietly(previous);
-    }
-
-    private void deleteQuietly(Path path) {
-        try {
-            Files.deleteIfExists(path);
-        } catch (IOException ignored) {
-            // A stale avatar file is harmless; preserve the API response.
         }
     }
 }

@@ -4,30 +4,29 @@ import com.oeurn_nurak.marketplace.entity.ProductImage;
 import com.oeurn_nurak.marketplace.exception.*;
 import com.oeurn_nurak.marketplace.repository.ProductImageRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.file.*;
-import java.util.*;
 
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class ImageService {
+    private static final String URL_PREFIX = "/api/v1/uploads/";
+
     private final ProductImageRepository images;
     private final ProductService products;
     private final CurrentUser current;
-    @Value("${app.upload.dir}") private String uploadDir;
+    private final StoredImageService storage;
 
     public ProductImage upload(Long productId, MultipartFile file) {
         current.requireCanSell();
         current.requireOwner(products.require(productId).getSellerId());
         if (file.isEmpty() || file.getSize() > 10 * 1024 * 1024) throw new BadRequestException("Image must be 1 byte to 10 MB");
-        Path target = Paths.get(uploadDir).toAbsolutePath().normalize().resolve(UUID.randomUUID() + ".png");
         byte[] data;
         try {
             data = file.getBytes();
@@ -35,6 +34,7 @@ public class ImageService {
             throw new BadRequestException("Unable to read image");
         }
         int orientation = ImageOrientation.read(data);
+        BufferedImage bitmap;
         try (var stream = ImageIO.createImageInputStream(new ByteArrayInputStream(data))) {
             if (stream == null) throw new BadRequestException("Invalid image");
             var readers = ImageIO.getImageReaders(stream);
@@ -44,17 +44,14 @@ public class ImageService {
                 reader.setInput(stream);
                 if ((long) reader.getWidth(0) * reader.getHeight(0) > 20_000_000)
                     throw new BadRequestException("Image exceeds 20 million pixels");
-                var bitmap = ImageOrientation.apply(reader.read(0), orientation);
-                Files.createDirectories(target.getParent());
-                ImageIO.write(bitmap, "png", target.toFile());
+                bitmap = ImageOrientation.apply(reader.read(0), orientation);
             } finally { reader.dispose(); }
-            return images.saveAndFlush(ProductImage.builder().productId(productId)
-                    .imageUrl("/api/v1/uploads/" + target.getFileName()).isPrimary(images.findByProductId(productId).isEmpty()).build());
-        } catch (IOException | RuntimeException ex) {
-            try { Files.deleteIfExists(target); } catch (IOException ignored) { /* Preserve the original error. */ }
-            if (ex instanceof RuntimeException runtime) throw runtime;
+        } catch (IOException ex) {
             throw new BadRequestException("Unable to read or store image");
         }
+        if (bitmap == null) throw new BadRequestException("Invalid image");
+        return images.saveAndFlush(ProductImage.builder().productId(productId)
+                .imageUrl(storage.savePng(bitmap, URL_PREFIX)).isPrimary(images.findByProductId(productId).isEmpty()).build());
     }
 
     public ProductImage primary(Long productId, Long imageId) {
@@ -75,6 +72,7 @@ public class ImageService {
         ProductImage image = require(productId, imageId);
         images.delete(image);
         images.flush();
+        storage.deleteByUrl(image.getImageUrl());
         if (Boolean.TRUE.equals(image.getIsPrimary())) {
             var remaining = images.findByProductId(productId);
             if (!remaining.isEmpty()) remaining.get(0).setIsPrimary(true);

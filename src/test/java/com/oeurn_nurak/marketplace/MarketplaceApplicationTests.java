@@ -78,10 +78,11 @@ class MarketplaceApplicationTests {
                 "category", "Electronics", "condition", "LIKE_NEW", "location", "Phnom Penh")), 201).path("id").asLong();
     }
 
-    java.nio.file.Path storedImage(JsonNode image) {
-        String url = image.path("imageUrl").asText();
-        String name = url.substring(url.lastIndexOf("/uploads/") + "/uploads/".length());
-        return java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "marketplace-test-uploads", name);
+    byte[] imageBytes(JsonNode image) throws Exception {
+        return mvc.perform(get(image.path("imageUrl").asText()))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("image/png"))
+                .andReturn().getResponse().getContentAsByteArray();
     }
 
     JsonNode notifications(Account account) throws Exception {
@@ -171,7 +172,7 @@ class MarketplaceApplicationTests {
         JsonNode image = call(auth(multipart(API + "/products/" + id + "/images").file(file), seller), 201);
         long imageId = image.path("id").asLong();
         assertThat(image.path("isPrimary").asBoolean()).isTrue();
-        mvc.perform(get(image.path("imageUrl").asText())).andExpect(status().isOk()).andExpect(content().contentType("image/png"));
+        assertThat(imageBytes(image)).isNotEmpty();
         call(get(API + "/products/" + id + "/images"), 200);
         call(auth(patch(API + "/products/" + id + "/images/" + imageId + "/primary"), seller), 200);
         call(auth(multipart(API + "/products/" + id + "/images").file(file), other), 403);
@@ -179,8 +180,8 @@ class MarketplaceApplicationTests {
         call(auth(multipart(API + "/products/" + id + "/images").file(invalid), seller), 400);
         call(auth(delete(API + "/products/" + id + "/images/" + imageId), other), 403);
         call(auth(delete(API + "/products/" + id + "/images/" + imageId), seller), 200);
+        call(get(image.path("imageUrl").asText()), 404);
         assertThat(call(get(API + "/products/" + id + "/images"), 200)).isEmpty();
-        java.nio.file.Files.deleteIfExists(storedImage(image));
     }
 
     @Test void productImagesApplyExifOrientation() throws Exception {
@@ -189,12 +190,29 @@ class MarketplaceApplicationTests {
         var jpeg = TestImages.jpeg(TestImages.pixels(4, 2, 1, 2, 3, 4, 5, 6, 7, 8));
         var file = new MockMultipartFile("file", "photo.jpg", "image/jpeg", TestImages.withExif(jpeg, 6, true));
         JsonNode image = call(auth(multipart(API + "/products/" + id + "/images").file(file), seller), 201);
-        var stored = storedImage(image);
-        assertThat(stored).exists();
-        var saved = javax.imageio.ImageIO.read(stored.toFile());
+        var saved = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(imageBytes(image)));
         assertThat(saved.getWidth()).isEqualTo(2);
         assertThat(saved.getHeight()).isEqualTo(4);
-        java.nio.file.Files.deleteIfExists(stored);
+    }
+
+    @Test void avatarImagesAreStoredAndServedPublicly() throws Exception {
+        Account member = account("avatarmember");
+        var bitmap = new java.awt.image.BufferedImage(3, 2, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var bytes = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(bitmap, "png", bytes);
+        var file = new MockMultipartFile("file", "avatar.png", "image/png", bytes.toByteArray());
+        JsonNode updated = call(auth(multipart(API + "/users/me/avatar").file(file), member), 200);
+        String url = updated.path("profile").path("avatarUrl").asText();
+        assertThat(url).startsWith("/api/v1/uploads/profile/");
+
+        byte[] served = mvc.perform(get(url))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("image/png"))
+                .andReturn().getResponse().getContentAsByteArray();
+        assertThat(served).isNotEmpty();
+
+        call(auth(multipart(API + "/users/me/avatar").file(file), member), 200);
+        mvc.perform(get(url)).andExpect(status().isNotFound());
     }
 
     @Test void postsCommentsReactionsAndSoftDeletion() throws Exception {

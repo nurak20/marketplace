@@ -105,7 +105,7 @@ Listing creation payload example (send as the `payload` JSON part; attach each r
 
 Each `imageIndexes` entry selects a zero-based `files` part. The response contains the created post and each product's full `images` list. The API enforces the existing 10 MB per-image and 50 MB per-request limits.
 
-The `imageUrl` returned for an uploaded image is served below `/api/v1/uploads/`.
+The `imageUrl` returned for an uploaded image is served below `/api/v1/uploads/` (avatars use `/api/v1/uploads/profile/`). Image bytes are stored in PostgreSQL, not on the container filesystem, so they survive redeploys and restarts. Reads are public and anonymous, return `image/png`, and carry a one-year immutable cache header so clients can cache aggressively.
 
 ## Posts and comments
 

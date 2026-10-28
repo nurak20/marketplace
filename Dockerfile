@@ -11,7 +11,6 @@ FROM eclipse-temurin:17-jre
 
 WORKDIR /app
 RUN groupadd --system app && useradd --system --gid app --home-dir /app app \
-    && mkdir -p /app/uploads \
     && chown -R app:app /app
 
 COPY --from=build --chown=app:app /workspace/target/marketplace-0.0.1-SNAPSHOT.jar /app/app.jar
