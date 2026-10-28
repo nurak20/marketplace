@@ -26,6 +26,7 @@ public class AccountService {
     private final UserDetailsServiceImpl userDetails;
     private final JwtService jwt;
     private final CurrentUser current;
+    private final NotificationService notifications;
 
     public AuthResponse register(RegisterRequest request) {
         String email = request.getEmail().trim().toLowerCase(Locale.ROOT);
@@ -180,5 +181,18 @@ public class AccountService {
         User user = requireUser(id);
         user.setCanSell(canSell);
         return AccountResponse.from(users.save(user));
+    }
+
+    public void changePassword(ChangePasswordRequest request) {
+        User user = current.get();
+        if (!passwords.matches(request.getCurrentPassword(), user.getPassword())) {
+            throw new BadRequestException("Current password is incorrect");
+        }
+        if (passwords.matches(request.getNewPassword(), user.getPassword())) {
+            throw new BadRequestException("New password must be different from the current password");
+        }
+        user.setPassword(passwords.encode(request.getNewPassword()));
+        users.saveAndFlush(user);
+        notifications.notifyPasswordChanged();
     }
 }

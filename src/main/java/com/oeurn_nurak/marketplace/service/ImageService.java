@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import javax.imageio.ImageIO;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
@@ -27,7 +28,9 @@ public class ImageService {
         current.requireOwner(products.require(productId).getSellerId());
         if (file.isEmpty() || file.getSize() > 10 * 1024 * 1024) throw new BadRequestException("Image must be 1 byte to 10 MB");
         Path target = Paths.get(uploadDir).toAbsolutePath().normalize().resolve(UUID.randomUUID() + ".png");
-        try (var stream = ImageIO.createImageInputStream(file.getInputStream())) {
+        byte[] data = file.getBytes();
+        int orientation = ImageOrientation.read(data);
+        try (var stream = ImageIO.createImageInputStream(new ByteArrayInputStream(data))) {
             if (stream == null) throw new BadRequestException("Invalid image");
             var readers = ImageIO.getImageReaders(stream);
             if (!readers.hasNext()) throw new BadRequestException("Upload a PNG, JPEG, or GIF image");
@@ -36,7 +39,7 @@ public class ImageService {
                 reader.setInput(stream);
                 if ((long) reader.getWidth(0) * reader.getHeight(0) > 20_000_000)
                     throw new BadRequestException("Image exceeds 20 million pixels");
-                var bitmap = reader.read(0);
+                var bitmap = ImageOrientation.apply(reader.read(0), orientation);
                 Files.createDirectories(target.getParent());
                 ImageIO.write(bitmap, "png", target.toFile());
             } finally { reader.dispose(); }

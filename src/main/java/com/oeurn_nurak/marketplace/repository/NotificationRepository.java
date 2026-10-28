@@ -1,6 +1,7 @@
 package com.oeurn_nurak.marketplace.repository;
 
 import com.oeurn_nurak.marketplace.entity.Notification;
+import com.oeurn_nurak.marketplace.entity.enums.NotifType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,11 +10,16 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
+
 @Repository
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
-    Page<Notification> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
+    Page<Notification> findByUserIdAndTypeInOrderByCreatedAtDesc(
+            Long userId, Collection<NotifType> types, Pageable pageable);
+
+    long countByUserIdAndTypeInAndIsReadFalse(Long userId, Collection<NotifType> types);
 
     @Modifying
-    @Query("UPDATE Notification n SET n.isRead = true WHERE n.userId = :userId")
-    void markAllReadByUserId(@Param("userId") Long userId);
+    @Query("UPDATE Notification n SET n.isRead = true WHERE n.userId = :userId AND n.isRead = false")
+    int markAllReadByUserId(@Param("userId") Long userId);
 }

@@ -31,6 +31,18 @@ public class Notification {
     @Column(name = "ref_id")
     private Long refId;
 
+    @Column(name = "actor_id")
+    private Long actorId;
+
+    @Column(name = "post_id")
+    private Long postId;
+
+    @Column(name = "product_id")
+    private Long productId;
+
+    @Column(name = "item_count", nullable = false)
+    private Integer itemCount = 0;
+
     @Column(name = "is_read", nullable = false)
     private Boolean isRead = false;
 

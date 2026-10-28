@@ -73,7 +73,8 @@ public class SocialService {
         if (request.getProductId() != null) products.require(request.getProductId());
         Message message = messages.save(Message.builder().senderId(actor).receiverId(receiver)
                 .productId(request.getProductId()).content(request.getContent()).isRead(false).build());
-        notifications.send(receiver, actor, NotifType.MESSAGE, "New message", message.getId());
+        notifications.send(receiver, actor, NotifType.MESSAGE, "New message", message.getId(),
+                null, request.getProductId(), 0);
         return message;
     }
 

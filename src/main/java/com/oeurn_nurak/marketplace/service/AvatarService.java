@@ -14,6 +14,7 @@ import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -54,7 +55,7 @@ public class AvatarService {
         String previousUrl = user.getAvatarUrl();
 
         try {
-            BufferedImage image = readImage(file);
+            BufferedImage image = readImage(file.getBytes());
             Files.createDirectories(profileDir);
             if (!ImageIO.write(image, "png", target.toFile())) {
                 throw new IOException("PNG encoder is unavailable");
@@ -72,8 +73,9 @@ public class AvatarService {
         }
     }
 
-    private BufferedImage readImage(MultipartFile file) throws IOException {
-        try (InputStream source = file.getInputStream();
+    private BufferedImage readImage(byte[] data) throws IOException {
+        int orientation = ImageOrientation.read(data);
+        try (InputStream source = new ByteArrayInputStream(data);
              ImageInputStream input = ImageIO.createImageInputStream(source)) {
             if (input == null) throw new BadRequestException("Invalid image");
             Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
@@ -93,7 +95,7 @@ public class AvatarService {
                 }
                 BufferedImage image = reader.read(0);
                 if (image == null) throw new BadRequestException("Invalid image");
-                return image;
+                return ImageOrientation.apply(image, orientation);
             } finally {
                 reader.dispose();
             }

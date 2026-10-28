@@ -10,6 +10,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/v1/notifications")
 @RequiredArgsConstructor
@@ -19,6 +21,9 @@ public class NotificationController {
     @GetMapping
     @PreAuthorize("hasAuthority('notification:read')")
     public ResponseDto<?> list(Pageable page) { return ResponseDto.ok(notifications.list(page)); }
+    @GetMapping("/unread-count")
+    @PreAuthorize("hasAuthority('notification:read')")
+    public ResponseDto<?> unreadCount() { return ResponseDto.ok(Map.of("count", notifications.unreadCount())); }
     @PatchMapping("/{id}/read")
     @PreAuthorize("hasAuthority('notification:read')")
     public ResponseDto<?> read(@PathVariable Long id) { return ResponseDto.ok(notifications.read(id)); }

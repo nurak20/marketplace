@@ -43,6 +43,7 @@ Pass `page` (zero-based), `size` (maximum 100), and optional `sort`, such as `?p
 | ------ | ----------------------- | ------------- | ------------------------------------------ |
 | POST   | `/auth/register`        | Public        | `RegisterRequest` → `AuthResponse`         |
 | POST   | `/auth/login`           | Public        | `LoginRequest` → `AuthResponse`            |
+| POST   | `/auth/change-password` | `user:write`  | `ChangePasswordRequest` → confirmation     |
 | GET    | `/users/me`             | Authenticated | Current `AccountResponse`                  |
 | GET    | `/users/me/permissions` | Authenticated | Array of permission-name strings           |
 | PATCH  | `/users/me`             | `user:write`  | `UpdateProfileRequest` → `ProfileUpdateResponse` |
@@ -54,6 +55,8 @@ New registrations receive `ROLE_USER` and `canSell: true` by default. `AccountRe
 Registration example: `{ "username":"sam", "email":"sam@example.com", "password":"password123", "fullName":"Sam Lee" }`. Login accepts either `{ "email":"sam@example.com", "password":"password123" }` or `{ "username":"sam", "password":"password123" }`.
 
 Every user can update their own `firstName`, `lastName`, `email`, `phone`, `location`, and `bio` through `PATCH /users/me`. The response contains the updated `account`; when the email changes it also contains a replacement `token` because JWTs are keyed by email.
+
+`POST /auth/change-password` takes `{ "currentPassword":"old-secret", "newPassword":"new-secret" }`. The current password must match, the new password must be 8–72 characters and different from the current one. The existing token stays valid and the account receives a `PASSWORD_CHANGE` notification.
 
 ## Products and reviews
 
@@ -136,8 +139,24 @@ Reaction values are `LIKE`, `LOVE`, `HAHA`, `WOW`, `SAD`, `ANGRY`. A post's `Pos
 | POST   | `/messages/{userId}`             | `message:write`                         | `{ "content":"Hello", "productId":1 }` → `Message` |
 | PATCH  | `/messages/{userId}/read`        | `message:write`                         | Mark incoming conversation messages read           |
 | GET    | `/notifications`                 | `notification:read`                     | Page of own notifications                          |
+| GET    | `/notifications/unread-count`    | `notification:read`                     | `{ "count": 3 }` for the badge                     |
 | PATCH  | `/notifications/{id}/read`       | Notification owner, `notification:read` | Mark one read                                      |
 | PATCH  | `/notifications/read-all`        | `notification:read`                     | Mark all own notifications read                    |
+
+Each notification returns `id`, `type`, `message`, `refId`, `isRead`, `createdAt`, `itemCount`, `postId`, `productId`, and the `actor` public profile (username, name, avatar). `POST` notifications describe a new listing and are only delivered to active staff (`ROLE_ADMIN`, `ROLE_SUPER_ADMIN`, `ROLE_HR`, `ROLE_EMPLOYEE`, `ROLE_MANAGER`); regular accounts never receive or list them. All other types are addressed to the recipient and remain visible to that account.
+
+### Realtime notifications
+
+Connect to `ws://<host>/ws/notifications?token=<jwt>` (use `wss://` behind TLS). The token is validated during the handshake; unauthenticated connections are rejected with 401. Events are JSON text frames:
+
+| Event                   | Payload                                                                 |
+| ----------------------- | ----------------------------------------------------------------------- |
+| `connected`             | `{ "event":"connected" }` confirms the socket is ready                   |
+| `notification.created`  | `{ "event":"notification.created", "notification":{...}, "unreadCount":3 }` |
+| `notification.read`     | `{ "event":"notification.read", "id":12, "unreadCount":2 }`               |
+| `notification.read-all` | `{ "event":"notification.read-all", "unreadCount":0 }`                    |
+
+Clients may send the text `ping` to receive `{ "event":"pong" }`. Events are emitted after the database transaction commits, so a rolled-back action never produces a notification.
 
 ## Admin, roles, and permissions
 

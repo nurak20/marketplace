@@ -289,7 +289,15 @@ public class PostService {
         List<Long> ids = validateProducts(request);
         ListingPost post = posts.save(ListingPost.builder().userId(current.id()).content(request.getContent()).build());
         for (Long id : ids) items.save(ListingPostItem.builder().postId(post.getId()).productId(id).build());
+        Long firstProductId = ids.isEmpty() ? null : ids.get(0);
+        notifications.notifyPostCreated(post, firstProductId, ids.size(),
+                postSummary(request.getContent(), firstProductId));
         return response(post);
+    }
+
+    private String postSummary(String content, Long firstProductId) {
+        if (content != null && !content.isBlank()) return content;
+        return firstProductId == null ? null : productService.require(firstProductId).getTitle();
     }
 
     public PostResponse update(Long id, CreatePostRequest request) {
@@ -336,7 +344,7 @@ public class PostService {
         reaction.setReactionType(request.getReactionType());
         PostReaction saved = reactions.save(reaction);
         if (existing.isEmpty()) notifications.send(post.getUserId(), userId, NotifType.LIKE,
-                "New product reaction", id);
+                "New product reaction", id, id, productId, 1);
         return saved;
     }
 
@@ -399,7 +407,7 @@ public class PostService {
                 .parentId(parent == null ? null : parent.getId()).content(request.getContent()).build());
         Long recipientId = parent == null ? post.getUserId() : parent.getUserId();
         String notificationMessage = parent == null ? "New post comment" : "New comment reply";
-        notifications.send(recipientId, userId, NotifType.COMMENT, notificationMessage, id);
+        notifications.send(recipientId, userId, NotifType.COMMENT, notificationMessage, id, id, productId, 1);
         return comment;
     }
 

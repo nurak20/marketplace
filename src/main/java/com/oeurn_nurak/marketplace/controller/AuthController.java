@@ -28,4 +28,11 @@ public class AuthController {
         return ResponseDto.ok(accounts.login(request));
     }
 
+    @PostMapping("/change-password")
+    @PreAuthorize("hasAuthority('user:write')")
+    public ResponseDto<?> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        accounts.changePassword(request);
+        return ResponseDto.message("Password changed");
+    }
+
 }

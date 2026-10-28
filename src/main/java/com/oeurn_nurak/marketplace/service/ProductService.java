@@ -163,7 +163,8 @@ public class ProductService {
         if (reviews.existsByProductIdAndBuyerId(id, buyer)) throw new ConflictException("Product already reviewed");
         Review review = reviews.save(Review.builder().productId(id).buyerId(buyer).sellerId(product.getSellerId())
                 .rating(request.getRating()).comment(request.getComment()).build());
-        notifications.send(product.getSellerId(), buyer, NotifType.REVIEW, "New product review", review.getId());
+        notifications.send(product.getSellerId(), buyer, NotifType.REVIEW, "New product review", review.getId(),
+                null, id, 1);
         return review;
     }
 
