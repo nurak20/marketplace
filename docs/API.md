@@ -145,6 +145,8 @@ Reaction values are `LIKE`, `LOVE`, `HAHA`, `WOW`, `SAD`, `ANGRY`. A post's `Pos
 | PATCH  | `/notifications/{id}/read`       | Notification owner, `notification:read` | Mark one read                                      |
 | PATCH  | `/notifications/read-all`        | `notification:read`                     | Mark all own notifications read                    |
 
+Every message payload (`GET /messages`, `GET /messages/{userId}`, and `POST /messages/{userId}`) includes `senderId`, `receiverId`, `content`, `isRead`, `createdAt`, plus the `sender` and `receiver` public profiles (username, name, avatar), so the inbox and conversation can render the other person without extra lookups.
+
 Each notification returns `id`, `type`, `message`, `refId`, `isRead`, `createdAt`, `itemCount`, `postId`, `productId`, and the `actor` public profile (username, name, avatar). `POST` notifications describe a new listing and are only delivered to active staff (`ROLE_ADMIN`, `ROLE_SUPER_ADMIN`, `ROLE_HR`, `ROLE_EMPLOYEE`, `ROLE_MANAGER`); regular accounts never receive or list them. All other types are addressed to the recipient and remain visible to that account.
 
 `message` carries the human-readable text of what happened, trimmed to 280 characters:

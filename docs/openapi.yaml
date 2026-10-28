@@ -1050,6 +1050,7 @@ components:
         updatedAt: { type: string, format: date-time }
     Message:
       type: object
+      description: Chat message with both participant profiles so lists and conversations can render names and avatars.
       properties:
         id: { type: integer, format: int64 }
         senderId: { type: integer, format: int64 }
@@ -1058,6 +1059,8 @@ components:
         content: { type: string }
         isRead: { type: boolean }
         createdAt: { type: string, format: date-time }
+        sender: { $ref: '#/components/schemas/UserResponse' }
+        receiver: { $ref: '#/components/schemas/UserResponse' }
     Notification:
       type: object
       description: >-
