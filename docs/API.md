@@ -2,6 +2,8 @@
 
 Base URL: `http://localhost:8081/api/v1` when running locally with Maven, or `http://localhost:7001/api/v1` when started with `./build`.
 
+Interactive docs: `/swagger-ui.html` (for example `http://localhost:8081/swagger-ui.html`). The generated OpenAPI JSON is served at `/v3/api-docs`. Use **Authorize** with a bearer token from `/auth/login` to try protected routes.
+
 All API routes use the `/api/v1` prefix. Except for registration, login, public product and post reads, and uploaded images, requests need a JWT. Send it as `Authorization: Bearer <token>`. JSON endpoints use `Content-Type: application/json`; image uploads use `multipart/form-data` with a `file` field.
 
 ## Response format
@@ -43,13 +45,15 @@ Pass `page` (zero-based), `size` (maximum 100), and optional `sort`, such as `?p
 | POST   | `/auth/login`           | Public        | `LoginRequest` → `AuthResponse`            |
 | GET    | `/users/me`             | Authenticated | Current `AccountResponse`                  |
 | GET    | `/users/me/permissions` | Authenticated | Array of permission-name strings           |
-| PATCH  | `/users/me`             | `user:write`  | `UpdateProfileRequest` → `AccountResponse` |
+| PATCH  | `/users/me`             | `user:write`  | `UpdateProfileRequest` → `ProfileUpdateResponse` |
 | GET    | `/users/{id}`           | `user:read`   | Public `UserResponse`                      |
 | GET    | `/users/{id}/reviews`   | `user:read`   | Page of reviews for seller                 |
 
 New registrations receive `ROLE_USER` and `canSell: true` by default. `AccountResponse` also includes effective `permissions` and the current `canSell` value.
 
 Registration example: `{ "username":"sam", "email":"sam@example.com", "password":"password123", "fullName":"Sam Lee" }`. Login accepts either `{ "email":"sam@example.com", "password":"password123" }` or `{ "username":"sam", "password":"password123" }`.
+
+Every user can update their own `firstName`, `lastName`, `email`, `phone`, `location`, and `bio` through `PATCH /users/me`. The response contains the updated `account`; when the email changes it also contains a replacement `token` because JWTs are keyed by email.
 
 ## Products and reviews
 
@@ -164,6 +168,81 @@ Staff management routes are admitted for staff authorities and then checked agai
 
 Management roles include `ROLE_HR`, `ROLE_EMPLOYEE`, `ROLE_MANAGER`, and `ROLE_SUPER_ADMIN`. Built-in roles (`ROLE_ADMIN`, `ROLE_USER`) cannot be deleted. The admin role must keep `admin:access` and `user:manage`; users must keep at least one role. Each protected feature checks its matching permission, such as `product:write`, `category:manage`, or `post:moderate`. Removing a post sets `deleted_at`; it does not delete the post or its related records.
 
+## Payroll
+
+Payroll covers staff compensation. `ROLE_HR` prepares employee profiles and draft runs, `ROLE_MANAGER` approves and pays them, and `ROLE_ADMIN`/`ROLE_SUPER_ADMIN` can do both. Employees use the `/payroll/me/*` routes and only see their own profile and payslips; those routes need a token but no payroll permission. Employee self-service only exposes payslips from `APPROVED` or `PAID` runs, so draft and cancelled figures stay internal.
+
+| Method | Path | Access | Purpose |
+| ------ | ---- | ------ | ------- |
+| GET | `/payroll/employees` | `payroll:read` | Paged employee profiles; filters: `status`, `department`, `q` |
+| GET | `/payroll/employees/{userId}` | `payroll:read` | Read one employee profile |
+| POST | `/payroll/employees` | `payroll:manage` | Enroll `{ "userId":1, "jobTitle":"Clerk", "department":"Operations", "baseSalary":1000, "allowance":100, "currency":"USD", "hireDate":"2024-01-15", "bankName":"ABA", "bankAccount":"000123456" }`; `employeeCode` is optional and defaults to `EMP-0001` |
+| PUT | `/payroll/employees/{userId}` | `payroll:manage` | Update compensation; `baseSalary` is required, other fields are optional |
+| PATCH | `/payroll/employees/{userId}/status` | `payroll:manage` | Set `{ "status":"ACTIVE" }`, `ON_LEAVE`, or `TERMINATED` |
+| GET | `/payroll/runs` | `payroll:read` | Paged payroll runs |
+| GET | `/payroll/runs/{id}` | `payroll:read` | Run totals and status |
+| POST | `/payroll/runs` | `payroll:manage` | Create `{ "year":2026, "month":3, "currency":"USD", "notes":"March payroll" }` and generate payslips |
+| POST | `/payroll/runs/{id}/regenerate` | `payroll:manage` | Re-snapshot profiles while the run is a draft; existing adjustments are discarded |
+| GET | `/payroll/runs/{id}/payslips` | `payroll:read` | Paged payslips for a run |
+| GET | `/payroll/payslips/{id}` | `payroll:read` | Read any payslip |
+| PATCH | `/payroll/payslips/{id}` | `payroll:manage` | Adjust `{ "bonus":100, "overtime":0, "tax":50, "otherDeductions":20, "notes":"Annual bonus" }` while the run is a draft |
+| POST | `/payroll/runs/{id}/approve` | `payroll:approve` | `DRAFT` → `APPROVED`; locks payslips |
+| POST | `/payroll/runs/{id}/pay` | `payroll:approve` | `APPROVED` → `PAID`; notifies each employee |
+| POST | `/payroll/runs/{id}/cancel` | `payroll:manage` | `DRAFT` → `CANCELLED` |
+| GET | `/payroll/me/profile` | Authenticated | Own employee profile |
+| GET | `/payroll/me/payslips` | Authenticated | Paged own payslips |
+| GET | `/payroll/me/payslips/{id}` | Authenticated | Own payslip detail |
+
+A run is unique per year and month, and future periods are rejected. Generation includes `ACTIVE` and `ON_LEAVE` employees hired on or before the period end, excludes `TERMINATED` employees, and rejects profiles whose currency differs from the run currency. `grossPay = baseSalary + allowance + bonus + overtime`; `deductionsTotal = tax + otherDeductions`; `netPay = grossPay - deductionsTotal` and cannot be negative. Runs and payslips become read-only once approved or paid.
+
+## Reports
+
+Reports are read-only SQL aggregates for dashboards. Every route needs `report:read`, which is granted to `ROLE_ADMIN`, `ROLE_SUPER_ADMIN`, `ROLE_HR`, and `ROLE_MANAGER`. Responses return a plain array (or object) inside `data`; they are not paged.
+
+| Method | Path | Query | Result |
+| ------ | ---- | ----- | ------ |
+| GET | `/reports/overview` | — | `ReportOverview` with user, listing, social, employee, and payroll totals |
+| GET | `/reports/product-status` | — | Listings and catalog value grouped by `AVAILABLE`, `SOLD`, `RESERVED`, `DELETED` |
+| GET | `/reports/categories` | — | Top 12 categories with available/sold/reserved counts and value |
+| GET | `/reports/monthly-activity` | `months` (1–24, default 12) | New users, listings, posts, comments, and reactions per month |
+| GET | `/reports/engagement` | `months` (1–24, default 12) | Comments, reactions, wishlists, reviews, and messages per month |
+| GET | `/reports/top-sellers` | `limit` (1–50, default 8) | Sellers ranked by listings, sold revenue, reactions, and comments |
+| GET | `/reports/payroll/departments` | — | Latest approved/paid run split by department |
+| GET | `/reports/payroll/runs` | `limit` (1–36, default 12) | Recent payroll runs with employee counts and totals |
+| GET | `/reports/payroll/headcount` | — | Headcount per department by employment status |
+
+Example `GET /reports/overview` response data:
+
+```json
+{
+  "totalUsers": 14,
+  "activeUsers": 14,
+  "sellers": 9,
+  "products": 32,
+  "availableProducts": 22,
+  "soldProducts": 6,
+  "posts": 12,
+  "comments": 28,
+  "reactions": 41,
+  "wishlists": 18,
+  "employees": 6,
+  "activeEmployees": 5,
+  "paidGross": 12800.00,
+  "paidNet": 11750.00,
+  "availableValue": 9450.00
+}
+```
+
+Example `GET /reports/monthly-activity?months=3` response data:
+
+```json
+[
+  { "month": "2026-08", "users": 2, "products": 5, "posts": 2, "comments": 6, "reactions": 9 },
+  { "month": "2026-09", "users": 3, "products": 4, "posts": 3, "comments": 8, "reactions": 12 },
+  { "month": "2026-10", "users": 1, "products": 6, "posts": 2, "comments": 5, "reactions": 7 }
+]
+```
+
 ## Frontend models
 
 ```ts
@@ -274,7 +353,7 @@ type Message = {
 type Notification = {
   id: number;
   userId: number;
-  type: "COMMENT" | "MESSAGE" | "FRIEND_REQUEST" | "REVIEW" | "LIKE";
+  type: "COMMENT" | "MESSAGE" | "FRIEND_REQUEST" | "REVIEW" | "LIKE" | "PAYROLL";
   message: string;
   refId: number | null;
   isRead: boolean;
@@ -286,6 +365,69 @@ type Role = {
   name: string;
   description: string | null;
   permissions: Permission[];
+};
+type EmploymentStatus = "ACTIVE" | "ON_LEAVE" | "TERMINATED";
+type PayrollRunStatus = "DRAFT" | "APPROVED" | "PAID" | "CANCELLED";
+type EmployeeProfile = {
+  id: number;
+  userId: number;
+  username: string | null;
+  fullName: string | null;
+  employeeCode: string;
+  jobTitle: string | null;
+  department: string | null;
+  baseSalary: number;
+  allowance: number;
+  currency: string;
+  hireDate: string | null;
+  bankName: string | null;
+  bankAccount: string | null;
+  status: EmploymentStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+type PayrollRun = {
+  id: number;
+  periodYear: number;
+  periodMonth: number;
+  currency: string;
+  status: PayrollRunStatus;
+  notes: string | null;
+  totalGross: number;
+  totalDeductions: number;
+  totalNet: number;
+  createdBy: number;
+  approvedBy: number | null;
+  approvedAt: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+type Payslip = {
+  id: number;
+  runId: number;
+  periodYear: number | null;
+  periodMonth: number | null;
+  runStatus: PayrollRunStatus | null;
+  userId: number;
+  employeeCode: string;
+  employeeName: string;
+  jobTitle: string | null;
+  department: string | null;
+  baseSalary: number;
+  allowance: number;
+  bonus: number;
+  overtime: number;
+  tax: number;
+  otherDeductions: number;
+  grossPay: number;
+  deductionsTotal: number;
+  netPay: number;
+  currency: string;
+  notes: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 type ConditionType = "NEW" | "LIKE_NEW" | "GOOD" | "FAIR" | "POOR";
 type ProductStatus = "AVAILABLE" | "SOLD" | "RESERVED" | "DELETED";

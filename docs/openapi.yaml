@@ -51,7 +51,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/UpdateProfileRequest' }
       responses:
-        '200': { description: Updated account }
+        '200': { description: 'Updated account plus a replacement token when the email changed' }
   /users/me/permissions:
     get:
       summary: Current user's effective permissions
@@ -538,6 +538,250 @@ paths:
       parameters: [{ $ref: '#/components/parameters/Id' }, { name: roleId, in: path, required: true, schema: { type: integer, format: int64 } }]
       responses:
         '200': { description: Updated account }
+  /payroll/employees:
+    get:
+      summary: List employee payroll profiles (payroll:read)
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/EmploymentStatus' } }
+        - { name: department, in: query, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Paged employee profiles }
+    post:
+      summary: Enroll a staff user in payroll (payroll:manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnrollEmployeeRequest' }
+      responses:
+        '201': { description: Employee profile }
+  /payroll/employees/{userId}:
+    get:
+      summary: Read an employee payroll profile (payroll:read)
+      parameters: [{ name: userId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200': { description: Employee profile }
+    put:
+      summary: Update compensation (payroll:manage)
+      parameters: [{ name: userId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateEmployeeRequest' }
+      responses:
+        '200': { description: Updated employee profile }
+  /payroll/employees/{userId}/status:
+    patch:
+      summary: Set employment status (payroll:manage)
+      parameters: [{ name: userId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateEmploymentStatusRequest' }
+      responses:
+        '200': { description: Updated employee profile }
+  /payroll/runs:
+    get:
+      summary: List payroll runs (payroll:read)
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged payroll runs }
+    post:
+      summary: Create a payroll run and generate payslips (payroll:manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePayrollRunRequest' }
+      responses:
+        '201': { description: Payroll run }
+  /payroll/runs/{id}:
+    get:
+      summary: Read a payroll run (payroll:read)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Payroll run }
+  /payroll/runs/{id}/regenerate:
+    post:
+      summary: Regenerate draft payslips from current profiles (payroll:manage)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Payroll run }
+  /payroll/runs/{id}/payslips:
+    get:
+      summary: List payslips for a run (payroll:read)
+      parameters: [{ $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged payslips }
+  /payroll/runs/{id}/approve:
+    post:
+      summary: Approve a draft payroll run (payroll:approve)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Payroll run }
+  /payroll/runs/{id}/pay:
+    post:
+      summary: Mark an approved payroll run paid (payroll:approve)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Payroll run }
+  /payroll/runs/{id}/cancel:
+    post:
+      summary: Cancel a draft payroll run (payroll:manage)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Payroll run }
+  /payroll/payslips/{id}:
+    get:
+      summary: Read any payslip (payroll:read)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Payslip }
+    patch:
+      summary: Adjust a draft payslip (payroll:manage)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePayslipRequest' }
+      responses:
+        '200': { description: Payslip }
+  /payroll/me/profile:
+    get:
+      summary: Read own employee profile
+      responses:
+        '200': { description: Employee profile }
+  /payroll/me/payslips:
+    get:
+      summary: List own approved or paid payslips
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses:
+        '200': { description: Paged payslips }
+  /payroll/me/payslips/{id}:
+    get:
+      summary: Read own approved or paid payslip
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Payslip }
+  /reports/overview:
+    get:
+      summary: Platform KPI totals (report:read)
+      responses:
+        '200':
+          description: Overview totals
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportOverview' }
+  /reports/product-status:
+    get:
+      summary: Listings grouped by status (report:read)
+      responses:
+        '200':
+          description: Status breakdown
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ProductStatusReport' }
+  /reports/categories:
+    get:
+      summary: Top categories with availability and value (report:read)
+      responses:
+        '200':
+          description: Category performance
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CategoryReport' }
+  /reports/monthly-activity:
+    get:
+      summary: Monthly users, listings, posts, comments and reactions (report:read)
+      parameters:
+        - name: months
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 24, default: 12 }
+      responses:
+        '200':
+          description: Monthly activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MonthlyActivityReport' }
+  /reports/engagement:
+    get:
+      summary: Monthly comments, reactions, wishlists, reviews and messages (report:read)
+      parameters:
+        - name: months
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 24, default: 12 }
+      responses:
+        '200':
+          description: Monthly engagement
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/EngagementReport' }
+  /reports/top-sellers:
+    get:
+      summary: Sellers ranked by listings and sold revenue (report:read)
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 8 }
+      responses:
+        '200':
+          description: Seller leaderboard
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TopSellerReport' }
+  /reports/payroll/departments:
+    get:
+      summary: Latest approved payroll run by department (report:read)
+      responses:
+        '200':
+          description: Department payroll
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PayrollDepartmentReport' }
+  /reports/payroll/runs:
+    get:
+      summary: Recent payroll runs with totals (report:read)
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 36, default: 12 }
+      responses:
+        '200':
+          description: Payroll runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PayrollRunReport' }
+  /reports/payroll/headcount:
+    get:
+      summary: Headcount per department by employment status (report:read)
+      responses:
+        '200':
+          description: Headcount
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/HeadcountReport' }
 components:
   securitySchemes:
     bearerAuth:
@@ -590,7 +834,10 @@ components:
     UpdateProfileRequest:
       type: object
       properties:
-        fullName: { type: string, maxLength: 100 }
+        firstName: { type: string, maxLength: 50 }
+        lastName: { type: string, maxLength: 50 }
+        fullName: { type: string, maxLength: 100, description: Legacy alternative to firstName/lastName. }
+        email: { type: string, format: email, maxLength: 100 }
         location: { type: string, maxLength: 100 }
         phone: { type: string, maxLength: 20 }
         bio: { type: string }
@@ -778,7 +1025,7 @@ components:
       properties:
         id: { type: integer, format: int64 }
         userId: { type: integer, format: int64 }
-        type: { type: string, enum: [COMMENT, MESSAGE, FRIEND_REQUEST, REVIEW, LIKE] }
+        type: { type: string, enum: [COMMENT, MESSAGE, FRIEND_REQUEST, REVIEW, LIKE, PAYROLL] }
         message: { type: string }
         refId: { type: integer, format: int64, nullable: true }
         isRead: { type: boolean }
@@ -796,3 +1043,209 @@ components:
         name: { type: string }
         description: { type: string, nullable: true }
         permissions: { type: array, items: { $ref: '#/components/schemas/Permission' } }
+    EmploymentStatus:
+      type: string
+      enum: [ACTIVE, ON_LEAVE, TERMINATED]
+    PayrollRunStatus:
+      type: string
+      enum: [DRAFT, APPROVED, PAID, CANCELLED]
+    EnrollEmployeeRequest:
+      type: object
+      required: [userId, baseSalary]
+      properties:
+        userId: { type: integer, format: int64 }
+        employeeCode: { type: string, maxLength: 30 }
+        jobTitle: { type: string, maxLength: 100 }
+        department: { type: string, maxLength: 100 }
+        baseSalary: { type: number, minimum: 0, multipleOf: 0.01 }
+        allowance: { type: number, minimum: 0, multipleOf: 0.01 }
+        currency: { type: string, pattern: '^[A-Za-z]{3}$' }
+        hireDate: { type: string, format: date }
+        bankName: { type: string, maxLength: 100 }
+        bankAccount: { type: string, maxLength: 50 }
+    UpdateEmployeeRequest:
+      type: object
+      required: [baseSalary]
+      properties:
+        jobTitle: { type: string, maxLength: 100 }
+        department: { type: string, maxLength: 100 }
+        baseSalary: { type: number, minimum: 0, multipleOf: 0.01 }
+        allowance: { type: number, minimum: 0, multipleOf: 0.01 }
+        currency: { type: string, pattern: '^[A-Za-z]{3}$' }
+        hireDate: { type: string, format: date }
+        bankName: { type: string, maxLength: 100 }
+        bankAccount: { type: string, maxLength: 50 }
+    UpdateEmploymentStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/EmploymentStatus' }
+    CreatePayrollRunRequest:
+      type: object
+      required: [year, month]
+      properties:
+        year: { type: integer, minimum: 2000, maximum: 2100 }
+        month: { type: integer, minimum: 1, maximum: 12 }
+        currency: { type: string, pattern: '^[A-Za-z]{3}$' }
+        notes: { type: string, maxLength: 500 }
+    UpdatePayslipRequest:
+      type: object
+      properties:
+        bonus: { type: number, minimum: 0, multipleOf: 0.01 }
+        overtime: { type: number, minimum: 0, multipleOf: 0.01 }
+        tax: { type: number, minimum: 0, multipleOf: 0.01 }
+        otherDeductions: { type: number, minimum: 0, multipleOf: 0.01 }
+        notes: { type: string, maxLength: 500 }
+    EmployeeProfileResponse:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        userId: { type: integer, format: int64 }
+        username: { type: string, nullable: true }
+        fullName: { type: string, nullable: true }
+        employeeCode: { type: string }
+        jobTitle: { type: string, nullable: true }
+        department: { type: string, nullable: true }
+        baseSalary: { type: number }
+        allowance: { type: number }
+        currency: { type: string }
+        hireDate: { type: string, format: date, nullable: true }
+        bankName: { type: string, nullable: true }
+        bankAccount: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/EmploymentStatus' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PayrollRunResponse:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        periodYear: { type: integer }
+        periodMonth: { type: integer }
+        currency: { type: string }
+        status: { $ref: '#/components/schemas/PayrollRunStatus' }
+        notes: { type: string, nullable: true }
+        totalGross: { type: number }
+        totalDeductions: { type: number }
+        totalNet: { type: number }
+        createdBy: { type: integer, format: int64 }
+        approvedBy: { type: integer, format: int64, nullable: true }
+        approvedAt: { type: string, format: date-time, nullable: true }
+        paidAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PayslipResponse:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        runId: { type: integer, format: int64 }
+        periodYear: { type: integer, nullable: true }
+        periodMonth: { type: integer, nullable: true }
+        runStatus: { type: string, enum: [DRAFT, APPROVED, PAID, CANCELLED], nullable: true }
+        userId: { type: integer, format: int64 }
+        employeeCode: { type: string }
+        employeeName: { type: string }
+        jobTitle: { type: string, nullable: true }
+        department: { type: string, nullable: true }
+        baseSalary: { type: number }
+        allowance: { type: number }
+        bonus: { type: number }
+        overtime: { type: number }
+        tax: { type: number }
+        otherDeductions: { type: number }
+        grossPay: { type: number }
+        deductionsTotal: { type: number }
+        netPay: { type: number }
+        currency: { type: string }
+        notes: { type: string, nullable: true }
+        paidAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ReportOverview:
+      type: object
+      properties:
+        totalUsers: { type: integer, format: int64 }
+        activeUsers: { type: integer, format: int64 }
+        sellers: { type: integer, format: int64 }
+        products: { type: integer, format: int64 }
+        availableProducts: { type: integer, format: int64 }
+        soldProducts: { type: integer, format: int64 }
+        posts: { type: integer, format: int64 }
+        comments: { type: integer, format: int64 }
+        reactions: { type: integer, format: int64 }
+        wishlists: { type: integer, format: int64 }
+        employees: { type: integer, format: int64 }
+        activeEmployees: { type: integer, format: int64 }
+        paidGross: { type: number }
+        paidNet: { type: number }
+        availableValue: { type: number }
+    ProductStatusReport:
+      type: object
+      properties:
+        status: { type: string, enum: [AVAILABLE, SOLD, RESERVED, DELETED] }
+        products: { type: integer, format: int64 }
+        value: { type: number }
+    CategoryReport:
+      type: object
+      properties:
+        category: { type: string }
+        products: { type: integer, format: int64 }
+        available: { type: integer, format: int64 }
+        sold: { type: integer, format: int64 }
+        reserved: { type: integer, format: int64 }
+        value: { type: number }
+    MonthlyActivityReport:
+      type: object
+      properties:
+        month: { type: string, example: '2026-10' }
+        users: { type: integer, format: int64 }
+        products: { type: integer, format: int64 }
+        posts: { type: integer, format: int64 }
+        comments: { type: integer, format: int64 }
+        reactions: { type: integer, format: int64 }
+    EngagementReport:
+      type: object
+      properties:
+        month: { type: string, example: '2026-10' }
+        comments: { type: integer, format: int64 }
+        reactions: { type: integer, format: int64 }
+        wishlists: { type: integer, format: int64 }
+        reviews: { type: integer, format: int64 }
+        messages: { type: integer, format: int64 }
+    TopSellerReport:
+      type: object
+      properties:
+        userId: { type: integer, format: int64 }
+        name: { type: string }
+        listings: { type: integer, format: int64 }
+        sold: { type: integer, format: int64 }
+        revenue: { type: number }
+        reactions: { type: integer, format: int64 }
+        comments: { type: integer, format: int64 }
+    PayrollDepartmentReport:
+      type: object
+      properties:
+        periodYear: { type: integer }
+        periodMonth: { type: integer }
+        department: { type: string }
+        employees: { type: integer, format: int64 }
+        gross: { type: number }
+        deductions: { type: number }
+        net: { type: number }
+    PayrollRunReport:
+      type: object
+      properties:
+        periodYear: { type: integer }
+        periodMonth: { type: integer }
+        status: { type: string, enum: [DRAFT, APPROVED, PAID, CANCELLED] }
+        employees: { type: integer, format: int64 }
+        gross: { type: number }
+        deductions: { type: number }
+        net: { type: number }
+    HeadcountReport:
+      type: object
+      properties:
+        department: { type: string }
+        active: { type: integer, format: int64 }
+        onLeave: { type: integer, format: int64 }
+        terminated: { type: integer, format: int64 }
+        total: { type: integer, format: int64 }

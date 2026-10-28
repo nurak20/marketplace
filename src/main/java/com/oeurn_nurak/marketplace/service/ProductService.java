@@ -34,7 +34,12 @@ public class ProductService {
     private final MarketplaceCatalogService catalog;
 
     public Product require(Long id) {
-        return products.findById(id).orElseThrow(() -> new ResourceNotFoundException("Product", id));
+        Product product = products.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Product", id));
+        if (product.getDeletedAt() != null) {
+            throw new ResourceNotFoundException("Product", id);
+        }
+        return product;
     }
 
     @Transactional(readOnly = true)

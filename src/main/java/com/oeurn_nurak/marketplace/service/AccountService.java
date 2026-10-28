@@ -34,9 +34,11 @@ public class AccountService {
         if (users.existsByEmail(email) || users.existsByUsername(username))
             throw new ConflictException("Email or username already exists");
         Role role = roles.findByName("ROLE_USER").orElseThrow(() -> new IllegalStateException("Default role missing"));
-        users.saveAndFlush(User.builder().username(username).email(email)
-                .password(passwords.encode(request.getPassword())).fullName(request.getFullName())
-                .isActive(true).canSell(true).roles(new HashSet<>(Set.of(role))).build());
+        User user = User.builder().username(username).email(email)
+                .password(passwords.encode(request.getPassword()))
+                .isActive(true).canSell(true).roles(new HashSet<>(Set.of(role))).build();
+        applyFullName(user, request.getFullName());
+        users.saveAndFlush(user);
         return new AuthResponse(jwt.generateToken(userDetails.loadUserByUsername(email)));
     }
 
@@ -68,11 +70,11 @@ public class AccountService {
                 .username(username)
                 .email(email)
                 .password(passwords.encode(request.password()))
-                .fullName(request.fullName() == null ? null : request.fullName().trim())
                 .isActive(true)
                 .canSell(true)
                 .roles(assignedRoles)
                 .build();
+        applyFullName(user, request.fullName());
         return AccountResponse.from(users.saveAndFlush(user));
     }
 
@@ -104,13 +106,62 @@ public class AccountService {
         return permissions;
     }
 
-    public AccountResponse update(UpdateProfileRequest request) {
+    public ProfileUpdateResponse update(UpdateProfileRequest request) {
         User user = current.get();
-        if (request.getFullName() != null) user.setFullName(request.getFullName());
-        if (request.getLocation() != null) user.setLocation(request.getLocation());
-        if (request.getPhone() != null) user.setPhone(request.getPhone());
-        if (request.getBio() != null) user.setBio(request.getBio());
-        return AccountResponse.from(users.save(user));
+        String previousEmail = user.getEmail();
+
+        if (request.getFirstName() != null || request.getLastName() != null) {
+            applyNameParts(user,
+                    request.getFirstName() != null ? request.getFirstName() : user.getFirstName(),
+                    request.getLastName() != null ? request.getLastName() : user.getLastName());
+        } else if (request.getFullName() != null) {
+            applyFullName(user, request.getFullName());
+        }
+
+        if (request.getEmail() != null) {
+            String email = clean(request.getEmail());
+            if (email == null) throw new BadRequestException("Email is required");
+            email = email.toLowerCase(Locale.ROOT);
+            if (!email.equalsIgnoreCase(user.getEmail())) {
+                if (users.existsByEmail(email)) throw new ConflictException("Email already in use");
+                user.setEmail(email);
+            }
+        }
+        if (request.getPhone() != null) user.setPhone(clean(request.getPhone()));
+        if (request.getLocation() != null) user.setLocation(clean(request.getLocation()));
+        if (request.getBio() != null) user.setBio(clean(request.getBio()));
+
+        User saved = users.saveAndFlush(user);
+        String token = saved.getEmail().equalsIgnoreCase(previousEmail) ? null
+                : jwt.generateToken(userDetails.loadUserByUsername(saved.getEmail()));
+        return new ProfileUpdateResponse(AccountResponse.from(saved), token);
+    }
+
+    private static void applyNameParts(User user, String firstName, String lastName) {
+        String first = clean(firstName);
+        String last = clean(lastName);
+        user.setFirstName(first);
+        user.setLastName(last);
+        String fullName = java.util.stream.Stream.of(first, last)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.joining(" "));
+        user.setFullName(fullName.isEmpty() ? null : fullName);
+    }
+
+    private static void applyFullName(User user, String fullName) {
+        String cleaned = clean(fullName);
+        if (cleaned == null) {
+            applyNameParts(user, null, null);
+            return;
+        }
+        String[] parts = cleaned.split("\\s+", 2);
+        applyNameParts(user, parts[0], parts.length > 1 ? parts[1] : null);
+    }
+
+    private static String clean(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     @Transactional(readOnly = true)
