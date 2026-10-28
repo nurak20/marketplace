@@ -45,8 +45,12 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/v1/products/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/posts/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/uploads/**").permitAll()
-                // Admin only
-                .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.GET, "/api/v1/categories", "/api/v1/conditions",
+                        "/api/v1/marketplace/options").permitAll()
+                // Staff endpoints still enforce their feature permission at the controller.
+                .requestMatchers("/api/v1/admin/**").hasAnyAuthority(
+                        "ROLE_ADMIN", "ROLE_SUPER_ADMIN", "user:manage", "category:manage",
+                        "condition:manage", "post:moderate")
                 // Everything else needs auth
                 .anyRequest().authenticated()
             )

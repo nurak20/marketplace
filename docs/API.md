@@ -31,6 +31,8 @@ Paged responses have this shape inside `data`:
 }
 ```
 
+Product and post feed pages also include the active `categories` and `conditions` arrays so a page can render its feed and filters from one API request. `GET /marketplace/options` returns the same option lists for the listing form.
+
 Pass `page` (zero-based), `size` (maximum 100), and optional `sort`, such as `?page=0&size=20&sort=createdAt,desc`.
 
 ## Authentication and accounts
@@ -45,6 +47,8 @@ Pass `page` (zero-based), `size` (maximum 100), and optional `sort`, such as `?p
 | GET    | `/users/{id}`           | `user:read`   | Public `UserResponse`                      |
 | GET    | `/users/{id}/reviews`   | `user:read`   | Page of reviews for seller                 |
 
+New registrations receive `ROLE_USER` and `canSell: true` by default. `AccountResponse` also includes effective `permissions` and the current `canSell` value.
+
 Registration example: `{ "username":"sam", "email":"sam@example.com", "password":"password123", "fullName":"Sam Lee" }`. Login accepts either `{ "email":"sam@example.com", "password":"password123" }` or `{ "username":"sam", "password":"password123" }`.
 
 ## Products and reviews
@@ -52,12 +56,13 @@ Registration example: `{ "username":"sam", "email":"sam@example.com", "password"
 | Method | Path                                      | Access                        | Body / result                                                                                                           |
 | ------ | ----------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/products`                               | Public                        | Page of products; filters: `keyword`, `category`, `location`, `condition`, `status`, `minPrice`, `maxPrice`, `sellerId` |
-| GET    | `/products/{id}`                          | Public                        | `Product`                                                                                                               |
+| GET    | `/marketplace/options`                    | Public                        | Active category and condition lists for the listing form                                                             |
+| GET    | `/products/{id}`                          | Public                        | `ProductDetailResponse` with images, seller, reviews, and totals; optional `postId` adds that listing’s author, comments, and like state |
 | POST   | `/products`                               | `product:write`               | `CreateProductRequest` → `Product`                                                                                      |
 | PATCH  | `/products/{id}`                          | Owner, `product:write`        | `UpdateProductRequest` → `Product`                                                                                      |
 | PATCH  | `/products/{id}/status`                   | Owner, `product:write`        | `{ "status":"SOLD" }` → `Product`                                                                                       |
 | DELETE | `/products/{id}`                          | Owner, `product:write`        | Soft-delete product                                                                                                     |
-| GET    | `/products/{id}/images`                   | Public                        | Array of `ProductImage`                                                                                                 |
+| GET    | `/products/{id}/images`                   | Public                        | Array of `ProductImage` (also included in `ProductResponse.images`)                                                      |
 | POST   | `/products/{id}/images`                   | Owner, `product:write`        | Multipart `file` → `ProductImage`                                                                                       |
 | PATCH  | `/products/{id}/images/{imageId}/primary` | Owner, `product:write`        | Set primary image                                                                                                       |
 | DELETE | `/products/{id}/images/{imageId}`         | Owner, `product:write`        | Delete image                                                                                                            |
@@ -68,7 +73,28 @@ Registration example: `{ "username":"sam", "email":"sam@example.com", "password"
 | PUT    | `/wishlist/{productId}`                   | `wishlist:write`              | Add product (idempotent)                                                                                                |
 | DELETE | `/wishlist/{productId}`                   | `wishlist:write`              | Remove product                                                                                                          |
 
-`CreateProductRequest`: `{ "title":"Desk", "description":"Wood desk", "price":75.00, "category":"Furniture", "condition":"GOOD", "location":"Phnom Penh" }`. Condition values are `NEW`, `LIKE_NEW`, `GOOD`, `FAIR`, `POOR`; product statuses are `AVAILABLE`, `SOLD`, `RESERVED` (`DELETED` is managed by DELETE).
+`CreateProductRequest`: `{ "title":"Desk", "description":"Wood desk", "price":75.00, "category":"Electronics", "condition":"GOOD", "location":"Phnom Penh" }`. Category names must be active in Management. Condition values are `NEW`, `LIKE_NEW`, `GOOD`, `FAIR`, `POOR`; product statuses are `AVAILABLE`, `SOLD`, `RESERVED` (`DELETED` is managed by DELETE).
+
+Listing creation payload example (send as the `payload` JSON part; attach each referenced image as a repeated `files` multipart part):
+
+```json
+{
+  "content": "For sale",
+  "products": [
+    {
+      "title": "Desk",
+      "description": "Wood desk",
+      "price": 75.00,
+      "category": "Furniture",
+      "condition": "GOOD",
+      "location": "Phnom Penh",
+      "imageIndexes": [0, 1]
+    }
+  ]
+}
+```
+
+Each `imageIndexes` entry selects a zero-based `files` part. The response contains the created post and each product's full `images` list. The API enforces the existing 10 MB per-image and 50 MB per-request limits.
 
 The `imageUrl` returned for an uploaded image is served below `/api/v1/uploads/`.
 
@@ -76,9 +102,10 @@ The `imageUrl` returned for an uploaded image is served below `/api/v1/uploads/`
 
 | Method | Path                   | Access                         | Body / result                                                   |
 | ------ | ---------------------- | ------------------------------ | --------------------------------------------------------------- |
-| GET    | `/posts`               | Public                         | Page of posts; optional `userId` filter                         |
-| GET    | `/posts/{id}`          | Public                         | `PostResponse`                                                  |
-| POST   | `/posts`               | `post:write`                   | `{ "content":"For sale", "productIds":[1,2] }` → `PostResponse` |
+| GET    | `/posts`               | Public                         | Page of posts with `postByUser`, products, and per-product like/comment totals; removed posts return the text `This listing is no longer available.` and an empty product list |
+| GET    | `/posts/{id}`          | Public                         | `PostResponse` with `postByUser` and product details             |
+| POST   | `/posts`               | `post:write`                   | `{ "content":"For sale", "productIds":[1,2] }` → `PostResponse` for existing products          |
+| POST   | `/posts/listing`       | `post:write`, `product:write`  | Multipart `payload` JSON plus repeated `files` image parts → creates products, images, and post in one request |
 | PUT    | `/posts/{id}`          | Post owner, `post:write`       | Same body as create; replaces linked products                   |
 | DELETE | `/posts/{id}`          | Post owner, `post:write`       | Soft-delete post                                                |
 | PUT    | `/posts/{id}/reaction` | `post:write`                   | `{ "reactionType":"LIKE" }` → reaction                          |
@@ -110,13 +137,19 @@ Reaction values are `LIKE`, `LOVE`, `HAHA`, `WOW`, `SAD`, `ANGRY`. A post's `Pos
 
 ## Admin, roles, and permissions
 
-Admin routes require the `ROLE_ADMIN` role and `admin:access` authority. User administration also checks `user:manage`.
+Staff management routes are admitted for staff authorities and then checked against each feature permission. Role and permission configuration requires `admin:access`; user administration requires `user:manage`.
 
 | Method             | Path                                           | Purpose                                                                     |
 | ------------------ | ---------------------------------------------- | --------------------------------------------------------------------------- |
 | GET                | `/admin/users`                                 | Page of accounts                                                            |
 | GET                | `/admin/users/{id}`                            | Read account                                                                |
 | PATCH              | `/admin/users/{id}/active`                     | `{ "active":true }`; disable prevents new authentication                    |
+| PATCH              | `/admin/users/{id}/selling`                    | `{ "canSell":false }`; prevent the account from publishing or editing listings |
+| PATCH              | `/admin/users/{id}/staff-role`                 | `{ "roleName":"ROLE_HR" }`; `admin:access`, keeps the default user role   |
+| GET / POST         | `/admin/categories`                            | List categories / create `{ "name":"Home appliances" }`                   |
+| PUT / PATCH        | `/admin/categories/{id}` / `/{id}/active`      | Rename or enable/disable a category                                         |
+| GET / PATCH        | `/admin/conditions` / `/{code}/active`         | List or enable/disable a supported product condition                       |
+| GET / PATCH        | `/admin/posts` / `/admin/posts/{id}/availability` | Review posts, remove from public feeds, or restore                       |
 | GET / POST         | `/admin/roles`                                 | List roles / create `{ "name":"ROLE_SELLER", "description":"Seller" }`      |
 | GET / PUT / DELETE | `/admin/roles/{id}`                            | Read, update, or delete a role                                              |
 | GET                | `/admin/roles/{id}/permissions`                | Read permissions for a role                                                 |
@@ -129,7 +162,7 @@ Admin routes require the `ROLE_ADMIN` role and `admin:access` authority. User ad
 | PUT                | `/admin/users/{id}/roles`                      | Replace assignments: `{ "ids":[1] }`                                        |
 | PUT / DELETE       | `/admin/users/{id}/roles/{roleId}`             | Add or remove a user role                                                   |
 
-Built-in roles (`ROLE_ADMIN`, `ROLE_USER`) cannot be deleted. The admin role must keep `admin:access` and `user:manage`; users must keep at least one role. Each protected feature checks its matching permission, such as `product:write` or `comment:write`.
+Management roles include `ROLE_HR`, `ROLE_EMPLOYEE`, `ROLE_MANAGER`, and `ROLE_SUPER_ADMIN`. Built-in roles (`ROLE_ADMIN`, `ROLE_USER`) cannot be deleted. The admin role must keep `admin:access` and `user:manage`; users must keep at least one role. Each protected feature checks its matching permission, such as `product:write`, `category:manage`, or `post:moderate`. Removing a post sets `deleted_at`; it does not delete the post or its related records.
 
 ## Frontend models
 
@@ -164,7 +197,9 @@ type AccountResponse = {
   email: string;
   phone: string | null;
   active: boolean;
+  canSell: boolean;
   roles: string[];
+  permissions: string[];
 };
 type Product = {
   id: number;
@@ -178,6 +213,10 @@ type Product = {
   status: ProductStatus;
   createdAt: string;
   updatedAt: string;
+  imageUrl: string | null; // compatibility convenience: primary image
+  images: ProductImage[];
+  seller: UserResponse | null;
+  isSaved: boolean;
 };
 type ProductImage = {
   id: number;

@@ -1,6 +1,5 @@
 package com.oeurn_nurak.marketplace.dto.request;
 
-import com.oeurn_nurak.marketplace.entity.enums.ConditionType;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
@@ -22,5 +21,5 @@ public class CreateProductRequest {
     @Size(max = 100) private String category;
     @Size(max = 100) private String location;
 
-    private ConditionType condition = ConditionType.GOOD;
+    @Size(max = 30) private String condition = "GOOD";
 }

@@ -7,6 +7,9 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.multipart.MultipartFile;
+import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -30,6 +33,15 @@ public class PostController {
     @PreAuthorize("hasAuthority('post:write')")
     public ResponseDto<?> create(@Valid @RequestBody CreatePostRequest request) {
         return ResponseDto.created("Post created", posts.create(request));
+    }
+
+    @PostMapping(value = "/listing", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('post:write') && hasAuthority('product:write')")
+    public ResponseDto<?> createListing(
+            @RequestPart("payload") @Valid CreateListingRequest request,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files) {
+        return ResponseDto.created("Listing created", posts.createListing(request, files));
     }
 
     @PutMapping("/{id}")

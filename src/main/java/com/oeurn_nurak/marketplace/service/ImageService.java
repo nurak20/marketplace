@@ -23,6 +23,7 @@ public class ImageService {
     @Value("${app.upload.dir}") private String uploadDir;
 
     public ProductImage upload(Long productId, MultipartFile file) {
+        current.requireCanSell();
         current.requireOwner(products.require(productId).getSellerId());
         if (file.isEmpty() || file.getSize() > 10 * 1024 * 1024) throw new BadRequestException("Image must be 1 byte to 10 MB");
         Path target = Paths.get(uploadDir).toAbsolutePath().normalize().resolve(UUID.randomUUID() + ".png");
@@ -49,6 +50,7 @@ public class ImageService {
     }
 
     public ProductImage primary(Long productId, Long imageId) {
+        current.requireCanSell();
         current.requireOwner(products.require(productId).getSellerId());
         ProductImage image = require(productId, imageId);
         images.findByProductId(productId).forEach(item -> item.setIsPrimary(item.getId().equals(imageId)));

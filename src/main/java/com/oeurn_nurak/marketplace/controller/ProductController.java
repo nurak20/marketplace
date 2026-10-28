@@ -17,11 +17,12 @@ public class ProductController {
 
     private final ProductService products;
     private final ImageService images;
+    private final PostService posts;
 
     @GetMapping
     public ResponseDto<?> list(@RequestParam(required = false) String keyword,
             @RequestParam(required = false) String category, @RequestParam(required = false) String location,
-            @RequestParam(required = false) com.oeurn_nurak.marketplace.entity.enums.ConditionType condition,
+            @RequestParam(required = false) String condition,
             @RequestParam(required = false) com.oeurn_nurak.marketplace.entity.enums.ProductStatus status,
             @RequestParam(required = false) java.math.BigDecimal minPrice,
             @RequestParam(required = false) java.math.BigDecimal maxPrice,
@@ -30,7 +31,11 @@ public class ProductController {
     }
 
     @GetMapping("/{id}")
-    public ResponseDto<?> get(@PathVariable Long id) { return ResponseDto.ok(products.require(id)); }
+    public ResponseDto<?> get(@PathVariable Long id, @RequestParam(required = false) Long postId) {
+        return ResponseDto.ok(postId == null
+                ? products.detailPage(id)
+                : posts.productDetail(postId, id));
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)

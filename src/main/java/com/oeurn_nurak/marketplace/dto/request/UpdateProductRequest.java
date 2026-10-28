@@ -1,6 +1,5 @@
 package com.oeurn_nurak.marketplace.dto.request;
 
-import com.oeurn_nurak.marketplace.entity.enums.ConditionType;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
@@ -13,5 +12,5 @@ public class UpdateProductRequest {
     @DecimalMin(value = "0.0", inclusive = false) @Digits(integer = 10, fraction = 2) private BigDecimal price;
     @Size(max = 100) private String category;
     @Size(max = 100) private String location;
-    private ConditionType condition;
+    @Size(max = 30) private String condition;
 }

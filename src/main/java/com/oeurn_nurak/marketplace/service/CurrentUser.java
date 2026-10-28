@@ -24,6 +24,12 @@ public class CurrentUser {
 
     public Long id() { return get().getId(); }
 
+    public void requireCanSell() {
+        if (!Boolean.TRUE.equals(get().getCanSell())) {
+            throw new ForbiddenException("Your selling access has been disabled. Contact the marketplace team.");
+        }
+    }
+
     public void requireOwner(Long ownerId) {
         if (!id().equals(ownerId)) throw new ForbiddenException("You do not own this resource");
     }

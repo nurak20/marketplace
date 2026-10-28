@@ -36,8 +36,44 @@ public class AccountService {
         Role role = roles.findByName("ROLE_USER").orElseThrow(() -> new IllegalStateException("Default role missing"));
         users.saveAndFlush(User.builder().username(username).email(email)
                 .password(passwords.encode(request.getPassword())).fullName(request.getFullName())
-                .isActive(true).roles(new HashSet<>(Set.of(role))).build());
+                .isActive(true).canSell(true).roles(new HashSet<>(Set.of(role))).build());
         return new AuthResponse(jwt.generateToken(userDetails.loadUserByUsername(email)));
+    }
+
+    public AccountResponse createManagedUser(AdminCreateUserRequest request) {
+        String email = request.email().trim().toLowerCase(Locale.ROOT);
+        String username = request.username().trim();
+        if (username.length() < 3) {
+            throw new BadRequestException("Username must have at least 3 characters");
+        }
+        if (users.existsByEmail(email) || users.existsByUsername(username)) {
+            throw new ConflictException("Email or username already exists");
+        }
+
+        String roleName = request.roleName().trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("ROLE_USER", "ROLE_HR", "ROLE_EMPLOYEE", "ROLE_MANAGER", "ROLE_SUPER_ADMIN")
+                .contains(roleName)) {
+            throw new BadRequestException("Select a supported marketplace staff role");
+        }
+
+        Role defaultRole = roles.findByName("ROLE_USER")
+                .orElseThrow(() -> new IllegalStateException("Default role missing"));
+        Role selectedRole = roles.findByName(roleName)
+                .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleName));
+        Set<Role> assignedRoles = new HashSet<>();
+        assignedRoles.add(defaultRole);
+        assignedRoles.add(selectedRole);
+
+        User user = User.builder()
+                .username(username)
+                .email(email)
+                .password(passwords.encode(request.password()))
+                .fullName(request.fullName() == null ? null : request.fullName().trim())
+                .isActive(true)
+                .canSell(true)
+                .roles(assignedRoles)
+                .build();
+        return AccountResponse.from(users.saveAndFlush(user));
     }
 
     public AuthResponse login(LoginRequest request) {
@@ -86,6 +122,12 @@ public class AccountService {
         if (current.id().equals(id) && !active) throw new BadRequestException("You cannot deactivate your own account");
         User user = requireUser(id);
         user.setIsActive(active);
+        return AccountResponse.from(users.save(user));
+    }
+
+    public AccountResponse setCanSell(Long id, boolean canSell) {
+        User user = requireUser(id);
+        user.setCanSell(canSell);
         return AccountResponse.from(users.save(user));
     }
 }

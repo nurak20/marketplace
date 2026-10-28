@@ -1,6 +1,5 @@
 package com.oeurn_nurak.marketplace.entity;
 
-import com.oeurn_nurak.marketplace.entity.enums.ConditionType;
 import com.oeurn_nurak.marketplace.entity.enums.ProductStatus;
 import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -41,10 +40,8 @@ public class Product {
     @Column(length = 100)
     private String category;
 
-    @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(nullable = false, columnDefinition = "condition_type")
-    private ConditionType condition = ConditionType.GOOD;
+    @Column(nullable = false, length = 30)
+    private String condition = "GOOD";
 
     @Column(length = 100)
     private String location;

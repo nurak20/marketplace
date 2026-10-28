@@ -120,8 +120,9 @@ public class AccessService {
         Set<Role> selected = new HashSet<>();
         ids.forEach(id -> selected.add(role(id)));
         if (selected.isEmpty()) throw new BadRequestException("User must retain at least one role");
-        if (current.id().equals(userId) && selected.stream().noneMatch(r -> r.getName().equals("ROLE_ADMIN")))
-            throw new BadRequestException("You cannot remove your own admin role");
+        if (current.id().equals(userId) && selected.stream().noneMatch(r ->
+                Set.of("ROLE_ADMIN", "ROLE_SUPER_ADMIN").contains(r.getName())))
+            throw new BadRequestException("You cannot remove your own administrator role");
         user.setRoles(selected);
         return AccountResponse.from(users.save(user));
     }
@@ -138,5 +139,36 @@ public class AccessService {
         Set<Long> ids = new HashSet<>();
         userRoles(userId).stream().filter(r -> !r.getId().equals(roleId)).forEach(r -> ids.add(r.getId()));
         return setUserRoles(userId, ids);
+    }
+
+    public AccountResponse setStaffRole(Long userId, String roleName) {
+        String normalized = roleName == null ? "" : roleName.trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("ROLE_USER", "ROLE_HR", "ROLE_EMPLOYEE", "ROLE_MANAGER", "ROLE_SUPER_ADMIN")
+                .contains(normalized)) {
+            throw new BadRequestException("Select a supported marketplace staff role");
+        }
+        User user = accounts.requireUser(userId);
+        if (user.getRoles().stream().anyMatch(role -> role.getName().equals("ROLE_ADMIN"))) {
+            throw new BadRequestException("The legacy administrator role cannot be changed here");
+        }
+        if (current.id().equals(userId)
+                && user.getRoles().stream().anyMatch(role -> role.getName().equals("ROLE_SUPER_ADMIN"))
+                && !normalized.equals("ROLE_SUPER_ADMIN")) {
+            throw new BadRequestException("You cannot remove your own super administrator role");
+        }
+        Role defaultRole = roles.findByName("ROLE_USER")
+                .orElseThrow(() -> new IllegalStateException("Default role missing"));
+        Role selectedRole = roles.findByName(normalized)
+                .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + normalized));
+        if (current.id().equals(userId) && normalized.equals("ROLE_USER")
+                && user.getRoles().stream().anyMatch(role -> role.getPermissions().stream()
+                .anyMatch(permission -> permission.getName().equals("management:access")))) {
+            throw new BadRequestException("You cannot remove your own management access");
+        }
+        Set<Role> selected = new HashSet<>();
+        selected.add(defaultRole);
+        selected.add(selectedRole);
+        user.setRoles(selected);
+        return AccountResponse.from(users.save(user));
     }
 }

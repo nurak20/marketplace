@@ -12,6 +12,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -27,9 +28,11 @@ public class PostService {
     private final PostReactionRepository reactions;
     private final CommentRepository comments;
     private final ProductService productService;
+    private final ImageService imageService;
     private final CurrentUser current;
     private final NotificationService notifications;
     private final UserRepository users;
+    private final MarketplaceCatalogService catalog;
 
     public ListingPost require(Long id) {
         return posts.findById(id).orElseThrow(() -> new ResourceNotFoundException("Post", id));
@@ -42,21 +45,22 @@ public class PostService {
     private PostResponse response(ListingPost post, Long viewerId) {
         List<Product> postProducts = productsForPosts(List.of(post))
                 .getOrDefault(post.getId(), List.of());
-        Map<Long, String> imageUrls = primaryImageUrls(postProducts);
+        Map<Long, List<ProductImage>> productImagesById = imagesByProductId(postProducts);
         Map<Long, UserResponse> sellers = sellerProfiles(postProducts);
         Set<Long> savedProductIds = savedProductIds(postProducts, viewerId);
-        return response(post, viewerId, postProducts, imageUrls, sellers, savedProductIds);
+        return response(post, viewerId, postProducts, productImagesById, sellers, savedProductIds);
     }
 
     private PostResponse response(
             ListingPost post,
             Long viewerId,
             List<Product> postProducts,
-            Map<Long, String> imageUrls,
+            Map<Long, List<ProductImage>> productImagesById,
             Map<Long, UserResponse> sellers,
             Set<Long> savedProductIds
     ) {
-        boolean hasReacted = viewerId != null
+        boolean removed = post.getDeletedAt() != null;
+        boolean hasReacted = !removed && viewerId != null
                 && reactions.existsByPostIdAndProductIdIsNullAndUserId(post.getId(), viewerId);
         List<ProductEngagementResponse> productEngagements = postProducts.stream()
                 .map(product -> new ProductEngagementResponse(product.getId(),
@@ -66,14 +70,22 @@ public class PostService {
                                 post.getId(), product.getId(), viewerId)))
                 .toList();
         List<ProductResponse> productResponses = postProducts.stream()
-                .map(product -> ProductResponse.from(
-                        product,
-                        imageUrls.get(product.getId()),
-                        sellers.get(product.getSellerId()),
-                        savedProductIds.contains(product.getId())))
+                .map(product -> {
+                    List<ProductImage> productImages = productImagesById
+                            .getOrDefault(product.getId(), List.of());
+                    return ProductResponse.from(
+                            product,
+                            primaryImageUrl(productImages),
+                            productImages,
+                            sellers.get(product.getSellerId()),
+                            savedProductIds.contains(product.getId()));
+                })
                 .toList();
-        return new PostResponse(post, productResponses, reactions.countByPostId(post.getId()),
-                comments.countByPostId(post.getId()), hasReacted, post.getCreatedAt(), productEngagements);
+        UserResponse postAuthor = users.findById(post.getUserId()).map(UserResponse::from).orElse(null);
+        return new PostResponse(PostSummaryResponse.from(post), removed ? List.of() : productResponses,
+                removed ? 0 : reactions.countByPostId(post.getId()),
+                removed ? 0 : comments.countByPostId(post.getId()), hasReacted, post.getCreatedAt(),
+                removed ? List.of() : productEngagements, postAuthor);
     }
 
     private Map<Long, List<Product>> productsForPosts(List<ListingPost> pagePosts) {
@@ -98,25 +110,25 @@ public class PostService {
         return result;
     }
 
-    private Map<Long, String> primaryImageUrls(List<Product> pageProducts) {
+    private Map<Long, List<ProductImage>> imagesByProductId(List<Product> pageProducts) {
         Set<Long> productIds = pageProducts.stream()
                 .map(Product::getId)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         if (productIds.isEmpty()) return Map.of();
 
-        Map<Long, List<ProductImage>> imagesByProduct = new HashMap<>();
-        productImages.findByProductIdIn(productIds).forEach(image ->
-                imagesByProduct.computeIfAbsent(image.getProductId(), ignored -> new ArrayList<>()).add(image));
-
-        Map<Long, String> result = new HashMap<>();
-        imagesByProduct.forEach((productId, images) -> {
-            ProductImage primary = images.stream()
-                    .filter(image -> Boolean.TRUE.equals(image.getIsPrimary()))
-                    .findFirst()
-                    .orElse(images.get(0));
-            result.put(productId, primary.getImageUrl());
-        });
+        Map<Long, List<ProductImage>> result = new HashMap<>();
+        productImages.findByProductIdIn(productIds).stream()
+                .sorted(Comparator.comparing(ProductImage::getId))
+                .forEach(image -> result.computeIfAbsent(image.getProductId(), ignored -> new ArrayList<>()).add(image));
         return result;
+    }
+
+    private String primaryImageUrl(List<ProductImage> images) {
+        return images.stream()
+                .filter(image -> Boolean.TRUE.equals(image.getIsPrimary()))
+                .map(ProductImage::getImageUrl)
+                .findFirst()
+                .orElse(images.isEmpty() ? null : images.get(0).getImageUrl());
     }
 
     private Map<Long, UserResponse> sellerProfiles(List<Product> pageProducts) {
@@ -150,23 +162,76 @@ public class PostService {
     public PostResponse get(Long id) { return response(require(id)); }
 
     @Transactional(readOnly = true)
-    public PageDto<PostResponse> list(Long userId, Pageable page) {
+    public ProductDetailResponse productDetail(Long postId, Long productId) {
+        ListingPost post = require(postId);
+        requireAvailable(post);
+        requirePostProduct(postId, productId);
+        Long viewerId = viewerId();
+        List<Comment> all = comments.findByPostIdAndProductIdOrderByCreatedAtAsc(postId, productId);
+        Map<Long, List<Comment>> repliesByParent = new HashMap<>();
+        Set<Long> authorIds = new HashSet<>();
+        for (Comment comment : all) {
+            authorIds.add(comment.getUserId());
+            if (comment.getParentId() != null) {
+                repliesByParent.computeIfAbsent(comment.getParentId(), ignored -> new ArrayList<>()).add(comment);
+            }
+        }
+        Map<Long, User> authors = new HashMap<>();
+        users.findAllById(authorIds).forEach(user -> authors.put(user.getId(), user));
+        List<CommentResponse> commentResponses = all.stream()
+                .filter(comment -> comment.getParentId() == null)
+                .map(comment -> commentResponse(comment, authors, repliesByParent))
+                .toList();
+        ProductDetailResponse base = productService.detailPage(productId);
+        boolean hasLiked = viewerId != null
+                && reactions.existsByPostIdAndProductIdAndUserId(postId, productId, viewerId);
+        UserResponse postAuthor = users.findById(post.getUserId()).map(UserResponse::from).orElse(null);
+        return new ProductDetailResponse(
+                base.product(),
+                reactions.countByPostIdAndProductId(postId, productId),
+                comments.countByPostIdAndProductId(postId, productId),
+                hasLiked,
+                postAuthor,
+                commentResponses,
+                base.reviews());
+    }
+
+    @Transactional(readOnly = true)
+    public MarketplacePageResponse<PostResponse> list(Long userId, Pageable page) {
         Long viewerId = viewerId();
         Page<ListingPost> result = userId == null ? posts.findAll(page) : posts.findByUserIdOrderByCreatedAtDesc(userId, page);
         Map<Long, List<Product>> productsByPost = productsForPosts(result.getContent());
         List<Product> pageProducts = productsByPost.values().stream()
                 .flatMap(Collection::stream)
                 .toList();
-        Map<Long, String> imageUrls = primaryImageUrls(pageProducts);
+        Map<Long, List<ProductImage>> productImagesById = imagesByProductId(pageProducts);
         Map<Long, UserResponse> sellers = sellerProfiles(pageProducts);
         Set<Long> savedProductIds = savedProductIds(pageProducts, viewerId);
-        return PageDto.from(result.map(post -> response(
+        Page<PostResponse> mapped = result.map(post -> response(
                 post,
                 viewerId,
                 productsByPost.getOrDefault(post.getId(), List.of()),
-                imageUrls,
+                productImagesById,
                 sellers,
-                savedProductIds)));
+                savedProductIds));
+        return MarketplacePageResponse.from(mapped,
+                catalog.categories().stream().map(MarketplaceCategory::getName).toList(),
+                catalog.conditions().stream().map(MarketplaceCondition::getCode).toList());
+    }
+
+    @Transactional(readOnly = true)
+    public PageDto<PostModerationResponse> moderationList(Pageable page) {
+        return PageDto.from(posts.findAll(page).map(PostModerationResponse::from));
+    }
+
+    public PostModerationResponse setAvailable(Long id, boolean available) {
+        ListingPost post = require(id);
+        if (available) {
+            post.setDeletedAt(null);
+        } else if (post.getDeletedAt() == null) {
+            post.setDeletedAt(LocalDateTime.now());
+        }
+        return PostModerationResponse.from(posts.save(post));
     }
 
     private List<Long> validateProducts(CreatePostRequest request) {
@@ -178,7 +243,49 @@ public class PostService {
         return ids;
     }
 
+    public PostResponse createListing(CreateListingRequest request, List<MultipartFile> files) {
+        if (request == null || request.products() == null || request.products().isEmpty()) {
+            throw new BadRequestException("At least one product is required");
+        }
+        List<MultipartFile> imageFiles = files == null ? List.of() : files;
+        Set<Integer> usedImageIndexes = new HashSet<>();
+        for (CreateListingRequest.ProductDraft draft : request.products()) {
+            for (Integer imageIndex : draft.imageIndexes()) {
+                if (imageIndex == null || imageIndex < 0 || imageIndex >= imageFiles.size()) {
+                    throw new BadRequestException("Product image index is invalid");
+                }
+                usedImageIndexes.add(imageIndex);
+            }
+        }
+        if (usedImageIndexes.size() != imageFiles.size()) {
+            throw new BadRequestException("Every uploaded image must belong to a product");
+        }
+
+        List<Long> productIds = new ArrayList<>();
+        for (CreateListingRequest.ProductDraft draft : request.products()) {
+            CreateProductRequest productRequest = new CreateProductRequest();
+            productRequest.setTitle(draft.title());
+            productRequest.setDescription(draft.description());
+            productRequest.setPrice(draft.price());
+            productRequest.setCategory(draft.category());
+            productRequest.setCondition(draft.condition());
+            productRequest.setLocation(draft.location());
+            Product product = productService.create(productRequest);
+            productIds.add(product.getId());
+
+            for (Integer imageIndex : draft.imageIndexes()) {
+                imageService.upload(product.getId(), imageFiles.get(imageIndex));
+            }
+        }
+
+        CreatePostRequest postRequest = new CreatePostRequest();
+        postRequest.setContent(request.content());
+        postRequest.setProductIds(productIds);
+        return create(postRequest);
+    }
+
     public PostResponse create(CreatePostRequest request) {
+        current.requireCanSell();
         List<Long> ids = validateProducts(request);
         ListingPost post = posts.save(ListingPost.builder().userId(current.id()).content(request.getContent()).build());
         for (Long id : ids) items.save(ListingPostItem.builder().postId(post.getId()).productId(id).build());
@@ -187,6 +294,8 @@ public class PostService {
 
     public PostResponse update(Long id, CreatePostRequest request) {
         ListingPost post = require(id);
+        requireAvailable(post);
+        current.requireCanSell();
         current.requireOwner(post.getUserId());
         List<Long> ids = validateProducts(request);
         items.deleteByPostId(id);
@@ -216,6 +325,7 @@ public class PostService {
 
     public PostReaction react(Long id, Long productId, ReactToPostRequest request) {
         ListingPost post = require(id);
+        requireAvailable(post);
         if (productId != null) requirePostProduct(id, productId);
         Long userId = current.id();
         var existing = productId == null
@@ -235,7 +345,7 @@ public class PostService {
     }
 
     public void unreact(Long id, Long productId) {
-        require(id);
+        requireAvailable(require(id));
         if (productId != null) requirePostProduct(id, productId);
         var reaction = productId == null
                 ? reactions.findByPostIdAndProductIdIsNullAndUserId(id, current.id())
@@ -250,7 +360,7 @@ public class PostService {
 
     @Transactional(readOnly = true)
     public PageDto<CommentResponse> comments(Long id, Long productId, Pageable page) {
-        require(id);
+        requireAvailable(require(id));
         if (productId != null) requirePostProduct(id, productId);
         Page<Comment> roots = productId == null
                 ? comments.findByPostIdAndProductIdIsNullAndParentIdIsNullOrderByCreatedAtAsc(id, page)
@@ -277,6 +387,7 @@ public class PostService {
 
     public Comment comment(Long id, Long productId, CreateCommentRequest request) {
         ListingPost post = require(id);
+        requireAvailable(post);
         if (productId != null) requirePostProduct(id, productId);
         Long userId = current.id();
         Comment parent = request.getParentId() == null ? null : requireComment(request.getParentId());
@@ -313,8 +424,14 @@ public class PostService {
 
     private Comment requireComment(Long id) {
         Comment comment = comments.findById(id).orElseThrow(() -> new ResourceNotFoundException("Comment", id));
-        require(comment.getPostId());
+        requireAvailable(require(comment.getPostId()));
         return comment;
+    }
+
+    private void requireAvailable(ListingPost post) {
+        if (post.getDeletedAt() != null) {
+            throw new ResourceNotFoundException("Listing is no longer available");
+        }
     }
 
     public void deleteComment(Long id) {

@@ -6,6 +6,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
@@ -17,6 +18,14 @@ public interface ProductRepository extends JpaRepository<Product, Long>,
     Page<Product> findWishlisted(@Param("userId") Long userId, Pageable pageable);
 
     Page<Product> findBySellerId(Long sellerId, Pageable pageable);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("UPDATE Product p SET p.category = :newName WHERE LOWER(p.category) = LOWER(:oldName)")
+    int renameCategory(@Param("oldName") String oldName, @Param("newName") String newName);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("UPDATE Product p SET p.condition = :newCode WHERE p.condition = :oldCode")
+    int renameCondition(@Param("oldCode") String oldCode, @Param("newCode") String newCode);
 
     @Query(value = """
             SELECT p.* FROM products p

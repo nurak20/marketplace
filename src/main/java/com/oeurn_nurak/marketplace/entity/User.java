@@ -55,6 +55,10 @@ public class User {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
+    @Column(name = "can_sell", nullable = false)
+    @Builder.Default
+    private Boolean canSell = true;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
