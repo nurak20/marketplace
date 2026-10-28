@@ -28,7 +28,12 @@ public class ImageService {
         current.requireOwner(products.require(productId).getSellerId());
         if (file.isEmpty() || file.getSize() > 10 * 1024 * 1024) throw new BadRequestException("Image must be 1 byte to 10 MB");
         Path target = Paths.get(uploadDir).toAbsolutePath().normalize().resolve(UUID.randomUUID() + ".png");
-        byte[] data = file.getBytes();
+        byte[] data;
+        try {
+            data = file.getBytes();
+        } catch (IOException ex) {
+            throw new BadRequestException("Unable to read image");
+        }
         int orientation = ImageOrientation.read(data);
         try (var stream = ImageIO.createImageInputStream(new ByteArrayInputStream(data))) {
             if (stream == null) throw new BadRequestException("Invalid image");

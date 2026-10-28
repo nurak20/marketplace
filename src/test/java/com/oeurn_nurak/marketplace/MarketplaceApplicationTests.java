@@ -78,6 +78,12 @@ class MarketplaceApplicationTests {
                 "category", "Electronics", "condition", "LIKE_NEW", "location", "Phnom Penh")), 201).path("id").asLong();
     }
 
+    java.nio.file.Path storedImage(JsonNode image) {
+        String url = image.path("imageUrl").asText();
+        String name = url.substring(url.lastIndexOf("/uploads/") + "/uploads/".length());
+        return java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "marketplace-test-uploads", name);
+    }
+
     @Test void authenticationValidationAndPrivateProfiles() throws Exception {
         Account account = account("alice");
         JsonNode login = call(body(post(API + "/auth/login"), Map.of("username", "alice", "password", "12345678")), 200);
@@ -163,7 +169,21 @@ class MarketplaceApplicationTests {
         call(auth(delete(API + "/products/" + id + "/images/" + imageId), other), 403);
         call(auth(delete(API + "/products/" + id + "/images/" + imageId), seller), 200);
         assertThat(call(get(API + "/products/" + id + "/images"), 200)).isEmpty();
-        java.nio.file.Files.deleteIfExists(java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "marketplace-test-uploads", image.path("imageUrl").asText().substring("/uploads/".length())));
+        java.nio.file.Files.deleteIfExists(storedImage(image));
+    }
+
+    @Test void productImagesApplyExifOrientation() throws Exception {
+        Account seller = account("seller");
+        long id = product(seller);
+        var jpeg = TestImages.jpeg(TestImages.pixels(4, 2, 1, 2, 3, 4, 5, 6, 7, 8));
+        var file = new MockMultipartFile("file", "photo.jpg", "image/jpeg", TestImages.withExif(jpeg, 6, true));
+        JsonNode image = call(auth(multipart(API + "/products/" + id + "/images").file(file), seller), 201);
+        var stored = storedImage(image);
+        assertThat(stored).exists();
+        var saved = javax.imageio.ImageIO.read(stored.toFile());
+        assertThat(saved.getWidth()).isEqualTo(2);
+        assertThat(saved.getHeight()).isEqualTo(4);
+        java.nio.file.Files.deleteIfExists(stored);
     }
 
     @Test void postsCommentsReactionsAndSoftDeletion() throws Exception {
